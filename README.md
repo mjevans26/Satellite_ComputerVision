@@ -8,4 +8,4 @@ As part of the [Long Island Solar Roadmap](https://solarroadmap.org), we are tes
 Ground mounted solar arrays are prominent features on the landscape.  In collaboration with The Nature Conservancy's North Carolina chapter, 
 
 The outputs are available for inspection interactively through a [Google Earth Engine App](https://defendersofwildlifegis.users.earthengine.app/view/compviz)
-![App image](/images/compVisApp.png)
+![App image](/images/compVizApp.png)
