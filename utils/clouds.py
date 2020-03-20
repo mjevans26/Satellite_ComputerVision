@@ -82,18 +82,14 @@ def basicQA(img):
     Returns:
         ee.Image: original image masked for clouds and cirrus
     """
-    #print('basicQA:', img)
     qa = img.select('QA60').int16()
-    # print('qa:', type(qa))
-    # qa = img.select(['QA60']).int16()
-    #print('qa:', qa.getInfo())
     # Bits 10 and 11 are clouds and cirrus, respectively.
     cloudBitMask = 1024 # math.pow(2, 10)
     cirrusBitMask = 2048 #math.pow(2, 11)
     # Both flags should be set to zero, indicating clear conditions.
     #mask = qa.bitwiseAnd(cloudBitMask).eq(0).And(qa.bitwiseAnd(cirrusBitMask).eq(0))
     mask = qa.bitwiseAnd(cloudBitMask).eq(0).And(qa.bitwiseAnd(cirrusBitMask).eq(0))
-    dated = img.updateMask(mask)
+    dated = img.updateMask(mask).divide(1000)
     #dated = img.addBands(img.metadata('system:time_start', 'date')).updateMask(mask)
     return dated
 
