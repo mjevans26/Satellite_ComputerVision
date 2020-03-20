@@ -142,34 +142,34 @@ def sentinelCloudScore(img):
         ee.Image: original image with added ['cloudScore'] band
     """
   #print('sentinelCloudScore:', img)
-  im = sentinel2toa(img)
+    im = sentinel2toa(img)
   # Compute several indicators of cloudyness and take the minimum of them.
-  score = ee.Image(1)
-  
-  # Clouds are reasonably bright in the blue and cirrus bands.
-  #score = score.min(rescale(im.select(['B2']), [0.1, 0.5]))
-  score = score.min(rescale(im, 'img.B2', [0.1, 0.5]))
-  #score = score.min(rescale(im.select(['B1']), [0.1, 0.3]))
-  score = score.min(rescale(im, 'img.B1', [0.1, 0.3]))
-  #score = score.min(rescale(im.select(['B1']).add(im.select(['B10'])), [0.15, 0.2]))
-  score = score.min(rescale(im, 'img.B1 + img.B10', [0.15, 0.2]))
-  
-  # Clouds are reasonably bright in all visible bands.
-  #score = score.min(rescale(im.select('B4').add(im.select('B3')).add(im.select('B2')), [0.2, 0.8]))
-  score = score.min(rescale(im, 'img.B4 + img.B3 + img.B2', [0.2, 0.8]))
-
-  # Clouds are moist
-  ndmi = im.normalizedDifference(['B8','B11'])
-  #score=score.min(rescale(ndmi, [-0.1, 0.1]))
-  score=score.min(rescale(ndmi, 'img', [-0.1, 0.1]))
-  
-  # However, clouds are not snow.
-  ndsi = im.normalizedDifference(['B3', 'B11'])
-  #score=score.min(rescale(ndsi, [0.8, 0.6]))
-  score=score.min(rescale(ndsi, 'img', [0.8, 0.6]))
-  
-  score = score.multiply(100).byte()
-  print('score:', type(score))
- 
-  return img.addBands(score.rename(['cloudScore']))
+    score = ee.Image(1)
+      
+      # Clouds are reasonably bright in the blue and cirrus bands.
+      #score = score.min(rescale(im.select(['B2']), [0.1, 0.5]))
+    score = score.min(rescale(im, 'img.B2', [0.1, 0.5]))
+      #score = score.min(rescale(im.select(['B1']), [0.1, 0.3]))
+    score = score.min(rescale(im, 'img.B1', [0.1, 0.3]))
+      #score = score.min(rescale(im.select(['B1']).add(im.select(['B10'])), [0.15, 0.2]))
+    score = score.min(rescale(im, 'img.B1 + img.B10', [0.15, 0.2]))
+      
+      # Clouds are reasonably bright in all visible bands.
+      #score = score.min(rescale(im.select('B4').add(im.select('B3')).add(im.select('B2')), [0.2, 0.8]))
+    score = score.min(rescale(im, 'img.B4 + img.B3 + img.B2', [0.2, 0.8]))
+    
+      # Clouds are moist
+    ndmi = im.normalizedDifference(['B8','B11'])
+      #score=score.min(rescale(ndmi, [-0.1, 0.1]))
+    score=score.min(rescale(ndmi, 'img', [-0.1, 0.1]))
+      
+      # However, clouds are not snow.
+    ndsi = im.normalizedDifference(['B3', 'B11'])
+      #score=score.min(rescale(ndsi, [0.8, 0.6]))
+    score=score.min(rescale(ndsi, 'img', [0.8, 0.6]))
+      
+    score = score.multiply(100).byte()
+    print('score:', type(score))
+     
+    return img.addBands(score.rename(['cloudScore']))
 
