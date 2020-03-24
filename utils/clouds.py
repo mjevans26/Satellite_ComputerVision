@@ -89,7 +89,7 @@ def basicQA(img):
     # Both flags should be set to zero, indicating clear conditions.
     #mask = qa.bitwiseAnd(cloudBitMask).eq(0).And(qa.bitwiseAnd(cirrusBitMask).eq(0))
     mask = qa.bitwiseAnd(cloudBitMask).eq(0).And(qa.bitwiseAnd(cirrusBitMask).eq(0))
-    dated = img.updateMask(mask).divide(1000)
+    dated = img.updateMask(mask).divide(10000).copyProperties(img)
     #dated = img.addBands(img.metadata('system:time_start', 'date')).updateMask(mask)
     return dated
 
