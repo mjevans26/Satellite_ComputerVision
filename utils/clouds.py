@@ -29,6 +29,23 @@ def rescale(img, exp, thresholds):
     #return img.subtract(thresholds[0]).divide(thresholds[1]-thresholds[0])
     return img.expression(exp, {'img': img}).subtract(thresholds[0]).divide(thresholds[1] - thresholds[0])
 
+def maskS2SR(img):
+    """
+    Apply built in masks to Sentinel-2 surface reflectance imagery
+    Parameters:
+        img (ee.Image): Sentinel-2 level 2A surface reflectange image
+    Returns:
+        ee.Image: masked image
+    """
+    scored = basicQA(img)
+    maskBand = img.select('SCL')
+    cloudMask = maskBand.neq(8).And(maskBand.neq(9))
+    waterMask = maskBand.neq(6)
+    cirrusMask = maskBand.neq(10)
+    snowMask = maskBand.neq(11)
+    darkMask = maskBand.neq(2).And(maskBand.neq(3))
+    return scored.updateMask(cloudMask.And(waterMask).And(cirrusMask).And(snowMask).And(darkMask))
+
 def waterScore(img):
     """ 
     Calculate a water likelihood score [0, 1]
