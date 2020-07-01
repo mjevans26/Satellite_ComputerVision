@@ -2,7 +2,7 @@
 import ee
 
 # Initialize Earth Engine
-ee.Initialize()
+JRC = ee.ImageCollection("JRC/GSW1_1/YearlyHistory")
 
 def sentinel2toa(img):
     """
@@ -29,23 +29,6 @@ def rescale(img, exp, thresholds):
     #return img.subtract(thresholds[0]).divide(thresholds[1]-thresholds[0])
     return img.expression(exp, {'img': img}).subtract(thresholds[0]).divide(thresholds[1] - thresholds[0])
 
-def maskS2SR(img):
-    """
-    Apply built in masks to Sentinel-2 surface reflectance imagery
-    Parameters:
-        img (ee.Image): Sentinel-2 level 2A surface reflectange image
-    Returns:
-        ee.Image: masked image
-    """
-    scored = basicQA(img)
-    maskBand = img.select('SCL')
-    cloudMask = maskBand.neq(8).And(maskBand.neq(9))
-    waterMask = maskBand.neq(6)
-    cirrusMask = maskBand.neq(10)
-    snowMask = maskBand.neq(11)
-    darkMask = maskBand.neq(2).And(maskBand.neq(3))
-    return scored.updateMask(cloudMask.And(waterMask).And(cirrusMask).And(snowMask).And(darkMask))
-
 def waterScore(img):
     """ 
     Calculate a water likelihood score [0, 1]
@@ -56,7 +39,6 @@ def waterScore(img):
     Returns:
         ee.Image: image with single ['waterscore'] band
     """
-    print('waterScore:', img)
     img = sentinel2toa(img)
     # Compute several indicators of water and take the minimum of them.
     score = ee.Image(1.0)
@@ -99,14 +81,18 @@ def basicQA(img):
     Returns:
         ee.Image: original image masked for clouds and cirrus
     """
+    #print('basicQA:', img)
     qa = img.select('QA60').int16()
+    # print('qa:', type(qa))
+    # qa = img.select(['QA60']).int16()
+    #print('qa:', qa.getInfo())
     # Bits 10 and 11 are clouds and cirrus, respectively.
     cloudBitMask = 1024 # math.pow(2, 10)
     cirrusBitMask = 2048 #math.pow(2, 11)
     # Both flags should be set to zero, indicating clear conditions.
     #mask = qa.bitwiseAnd(cloudBitMask).eq(0).And(qa.bitwiseAnd(cirrusBitMask).eq(0))
     mask = qa.bitwiseAnd(cloudBitMask).eq(0).And(qa.bitwiseAnd(cirrusBitMask).eq(0))
-    dated = img.updateMask(mask).divide(10000).copyProperties(img)
+    dated = img.updateMask(mask)
     #dated = img.addBands(img.metadata('system:time_start', 'date')).updateMask(mask)
     return dated
 
@@ -154,35 +140,85 @@ def sentinelCloudScore(img):
     Returns:
         ee.Image: original image with added ['cloudScore'] band
     """
-  #print('sentinelCloudScore:', img)
     im = sentinel2toa(img)
-  # Compute several indicators of cloudyness and take the minimum of them.
+    # Compute several indicators of cloudyness and take the minimum of them.
     score = ee.Image(1)
       
-      # Clouds are reasonably bright in the blue and cirrus bands.
-      #score = score.min(rescale(im.select(['B2']), [0.1, 0.5]))
+    # Clouds are reasonably bright in the blue and cirrus bands.
+    #score = score.min(rescale(im.select(['B2']), [0.1, 0.5]))
     score = score.min(rescale(im, 'img.B2', [0.1, 0.5]))
-      #score = score.min(rescale(im.select(['B1']), [0.1, 0.3]))
+    #score = score.min(rescale(im.select(['B1']), [0.1, 0.3]))
     score = score.min(rescale(im, 'img.B1', [0.1, 0.3]))
-      #score = score.min(rescale(im.select(['B1']).add(im.select(['B10'])), [0.15, 0.2]))
+    #score = score.min(rescale(im.select(['B1']).add(im.select(['B10'])), [0.15, 0.2]))
     score = score.min(rescale(im, 'img.B1 + img.B10', [0.15, 0.2]))
       
-      # Clouds are reasonably bright in all visible bands.
-      #score = score.min(rescale(im.select('B4').add(im.select('B3')).add(im.select('B2')), [0.2, 0.8]))
+    # Clouds are reasonably bright in all visible bands.
+    #score = score.min(rescale(im.select('B4').add(im.select('B3')).add(im.select('B2')), [0.2, 0.8]))
     score = score.min(rescale(im, 'img.B4 + img.B3 + img.B2', [0.2, 0.8]))
     
-      # Clouds are moist
+    # Clouds are moist
     ndmi = im.normalizedDifference(['B8','B11'])
-      #score=score.min(rescale(ndmi, [-0.1, 0.1]))
+    #score=score.min(rescale(ndmi, [-0.1, 0.1]))
     score=score.min(rescale(ndmi, 'img', [-0.1, 0.1]))
       
-      # However, clouds are not snow.
+    # However, clouds are not snow.
     ndsi = im.normalizedDifference(['B3', 'B11'])
-      #score=score.min(rescale(ndsi, [0.8, 0.6]))
+    #score=score.min(rescale(ndsi, [0.8, 0.6]))
     score=score.min(rescale(ndsi, 'img', [0.8, 0.6]))
       
     score = score.multiply(100).byte()
-    print('score:', type(score))
+    #print('score:', type(score))
      
     return img.addBands(score.rename(['cloudScore']))
+
+def mask(img):
+    date = img.date()
+    year = date.get('year')
+    month = date.get('month')
+    cdi = ee.Algorithms.Sentinel2.CDI(img)
+    scored = basicQA(img)
+    clouds = sentinelCloudScore(scored).lte(15).Or(cdi.gte(-0.2))
+    water = waterScore(img).select('waterScore').lte(0.25)
+    jrc = ee.Image(JRC.filterMetadata('month', 'equals', month).filterMetadata('year', 'equals', year).first())
+    waterMask = jrc.focal_max(1, 'square', 'pixels').neq(2).And(water)
+    shadowMask = img.select('B11').gt(900)
+    return scored.updateMask(clouds.And(shadowMask).And(waterMask))
+
+def maskSR(img):
+    """
+    Apply built in masks to Sentinel-2 surface reflectance imagery
+    Parameters:
+        img (ee.Image): Sentinel-2 level 2A surface reflectange image
+    Returns:
+        ee.Image: masked image
+    """
+    jrc = ee.Image('JRC/GSW1_1/YearlyHistory/2018')
+    scored = basicQA(img);
+    maskBand = img.select('SCL')
+    cloudMask = maskBand.neq(8).And(maskBand.neq(9))
+    waterMask = maskBand.neq(6).where(jrc.gte(2), 0)
+    cirrusMask = maskBand.neq(10)
+    snowMask = maskBand.neq(11)
+    darkMask = maskBand.neq(2).And(maskBand.neq(3))
+    return scored.updateMask(cloudMask.And(waterMask).And(cirrusMask).And(snowMask).And(darkMask))
+
+def maskTOA(img):
+    """
+    Mask Sentinel-2 1C top of atmosphere imagery for clouds, water, shadow
+    Parameters:
+        img (ee.Image): Sentinel-2 level 1C image
+    Returns:
+        ee.Image: masked image
+    """
+    date = img.date()
+    year = date.get('year')
+    #month = date.get('month')
+    #cdi = ee.Algorithms.Sentinel2.CDI(img)
+    scored = basicQA(img)
+    cloudMask = sentinelCloudScore(scored).select('cloudScore').lte(15)#.Or(cdi.gte(-0.2))
+    water = waterScore(img).select('waterScore').lte(0.25)
+    jrc = ee.Image(JRC.filterMetadata('year', 'equals', year).first())
+    watermask = water.where(jrc.gte(2), 0)
+    shadowMask = img.select('B11').gt(900)
+    return scored.updateMask(cloudMask.And(shadowMask).And(watermask))
 
