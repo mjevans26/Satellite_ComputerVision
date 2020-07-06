@@ -192,15 +192,15 @@ def maskSR(img):
     Returns:
         ee.Image: masked image
     """
-    jrc = ee.Image('JRC/GSW1_1/YearlyHistory/2018')
+#    jrc = ee.Image('JRC/GSW1_1/YearlyHistory/2018')
     scored = basicQA(img);
     maskBand = img.select('SCL')
     cloudMask = maskBand.neq(8).And(maskBand.neq(9))
-    waterMask = maskBand.neq(6).where(jrc.gte(2), 0)
+#    waterMask = maskBand.neq(6).where(jrc.gte(2), 0)
     cirrusMask = maskBand.neq(10)
     snowMask = maskBand.neq(11)
     darkMask = maskBand.neq(2).And(maskBand.neq(3))
-    return scored.updateMask(cloudMask.And(waterMask).And(cirrusMask).And(snowMask).And(darkMask))
+    return scored.updateMask(cloudMask.And(cirrusMask).And(snowMask).And(darkMask))
 
 def maskTOA(img):
     """
@@ -210,15 +210,15 @@ def maskTOA(img):
     Returns:
         ee.Image: masked image
     """
-    date = img.date()
-    year = date.get('year')
+#    date = img.date()
+#    year = date.get('year')
     #month = date.get('month')
     #cdi = ee.Algorithms.Sentinel2.CDI(img)
     scored = basicQA(img)
     cloudMask = sentinelCloudScore(scored).select('cloudScore').lte(15)#.Or(cdi.gte(-0.2))
-    water = waterScore(img).select('waterScore').lte(0.25)
-    jrc = ee.Image(JRC.filterMetadata('year', 'equals', year).first())
-    watermask = water.where(jrc.gte(2), 0)
+#    water = waterScore(img).select('waterScore').lte(0.25)
+#    jrc = ee.Image(JRC.filterMetadata('year', 'equals', year).first())
+#    watermask = water.where(jrc.gte(2), 0)
     shadowMask = img.select('B11').gt(900)
-    return scored.updateMask(cloudMask.And(shadowMask).And(watermask))
+    return scored.updateMask(cloudMask.And(shadowMask))#.And(watermask))
 
