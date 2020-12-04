@@ -70,7 +70,9 @@ def get_overlap(imgCol1, imgCol2):
   Returns:
     ee.Geometry: area of overlap
   """
-  intersect = imgCol1.geometry(5).intersection(imgCol2.geometry(5), 5)
+  geom1 = imgCol1.geometry(5).dissolve()
+  geom2 = imgCol2.geometry(5).dissolve()
+  intersect = geom1.intersection(geom2, 5)
   return intersect
 
 def hist_to_FC(hist, band):
