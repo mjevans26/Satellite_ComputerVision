@@ -5,8 +5,7 @@ Created on Sat Jan  2 12:41:40 2021
 @author: MEvans
 """
 
-import processing
-import model
+from utils import model, processing
 import argparse
 import os
 import glob
@@ -37,6 +36,9 @@ eval_files =  glob.glob(os.path.join(args.data_folder, 'eval'))
 
 training = processing.get_training_dataset(train_files)
 evaluation = processing.get_eval_dataset(eval_files)
+
+# get the run context
+run = Run.get_context()
 
 # build the model
 m = model.get_model(depth = len(BANDS), optim = OPTIMIZER, loss = LOSS, mets = METRICS)
