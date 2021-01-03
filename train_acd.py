@@ -12,6 +12,7 @@ import os
 import glob
 import tensorflow as tf
 from datetime import datetime
+from azureml.core import Run
 
 # Set Global variables
 
@@ -47,28 +48,36 @@ m.compile(
         metrics = METRICS
         )
 
-# create a checkpoint to save model weights
+# create special folders './outputs' and './logs' which automatically get saved
 os.makedirs('outputs', exists_OK = True)
-out_folder = '/outputs'
+os.makedirs('logs', exists_OK = True)
+out_dir = './outputs'
+log_dir = './logs'
 
+# get the current time
 now = datetime.now() 
 date = now.strftime("%d%b%y")
 date
 
+# define a checkpoint callback to save best models during training
 checkpoint = tf.keras.callbacks.ModelCheckpoint(
-    os.path.join(out_folder, 'best_weights_' + date + '.hdf5'),
+    os.path.join(out_dir, 'best_weights_' + date + '.hdf5'),
     monitor='val_mean_iou',
     verbose=1,
     save_best_only=True,
     mode='max'
     )
 
+# define a tensorboard callback to write training logs
+tensorboard = tf.keras.callbacks.Tensorboard(log_dir = log_dir)
+
 # train the model
 m.train(
         x = training,
         epochs = args.e,
         validation_data = evaluation,
-        callbacks = [checkpoint, tensorboard])
+        callbacks = [checkpoint, tensorboard]
+        )
 
-joblib.dump(value = m, filename = 'outputs/unet256.h5)
+m.save(os.path.join(out_dir, 'unet256.h5'))
 
