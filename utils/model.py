@@ -12,20 +12,41 @@ from tensorflow.python.keras import models
 from tensorflow.python.keras import metrics
 from tensorflow.python.keras import optimizers
 
-def weighted_bce(y_true, y_pred, weight):
+def weighted_bce(weight = 0.8):
     """
     Compute the weighted binary cross entropy between predictions and observations
     Parameters:
-        y_true (): 2D tensor of labels
-        y_pred (): 2D tensor of probabilities
-        weight (int): weighting factor for positive examples
+        y_true (): nD tensor of labels
+        y_pred (): nD tensor of probabilities
+        weight (float): weighting factor for positive predictions. weight < 1 = reduce false positives
+        
     Returns:
-        2D tensor
+        nD tensor of same shape as y_pred
     """
-    bce = tf.nn.weighted_cross_entropy_with_logits(labels = y_true, logits = y_pred, pos_weight = weight)
-    return tf.reduce_mean(bce)
+    def bce_loss(y_true, y_pred):
+        bce = tf.nn.weighted_cross_entropy_with_logits(labels = y_true, logits = y_pred, pos_weight = weight)
+        return tf.reduce_mean(bce)
+    
+    return bce_loss
 
-def iou(true, pred):
+def dice_coef(y_true, y_pred, smooth=1, weight=0.5):
+    """
+    https://github.com/daifeng2016/End-to-end-CD-for-VHR-satellite-image
+    """
+    # y_true = y_true[:, :, :, -1]  # y_true[:, :, :, :-1]=y_true[:, :, :, -1] if dim(3)=1 等效于[8,256,256,1]==>[8,256,256]
+    # y_pred = y_pred[:, :, :, -1]
+    intersection = K.sum(y_true * y_pred)
+    union = K.sum(y_true) + weight * K.sum(y_pred)
+    # K.mean((2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth))
+    return ((2. * intersection + smooth) / (union + smooth))  # not working better using mean
+
+def dice_coef_loss(y_true, y_pred):
+    """
+    https://github.com/daifeng2016/End-to-end-CD-for-VHR-satellite-image
+    """
+    return 1 - dice_coef(y_true, y_pred)
+
+def iou_loss(true, pred):
     """
     Calcaulate the intersection over union metric
     """
@@ -34,7 +55,7 @@ def iou(true, pred):
     notTrue = 1 - true
     union = true + (notTrue * pred)
 
-    return tf.reduce_sum(intersection)/tf.reduce_sum(union)
+    return tf.subtract(1.0, tf.reduce_sum(intersection)/tf.reduce_sum(union))
 
 def conv_block(input_tensor, num_filters):
 	encoder = layers.Conv2D(num_filters, (3, 3), padding='same')(input_tensor)
@@ -63,17 +84,18 @@ def decoder_block(input_tensor, concat_tensor, num_filters):
 	decoder = layers.Activation('relu')(decoder)
 	return decoder
 
-def get_model(depth, optim, mets):
+def get_model(depth, optim, loss, mets):
     """
     Build a U-Net model
     Parameters:
         depth (int): number of training features (i.e. bands)
         optim (tf.keras.optimizer): keras optimizer
+        loss (tf.keras.loss): keras or custom loss function
         mets (list<tf.keras.metrics): list of keras metrics
     Returns:
         tf.keras.model: compiled U-Net model
     """
-    inputs = layers.Input(shape=[None, None, len(BANDS)]) # 256
+    inputs = layers.Input(shape=[None, None, depth]) # 256
     encoder0_pool, encoder0 = encoder_block(inputs, 32) # 128
     encoder1_pool, encoder1 = encoder_block(encoder0_pool, 64) # 64
     encoder2_pool, encoder2 = encoder_block(encoder1_pool, 128) # 32
@@ -91,7 +113,7 @@ def get_model(depth, optim, mets):
 
     model.compile(
             optimizer=optim, 
-            loss = weighted_bce,
+            loss = loss,
             #loss=losses.get(LOSS),
             metrics=[metrics.get(metric) for metric in mets])
 
