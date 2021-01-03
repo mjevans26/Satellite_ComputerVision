@@ -23,8 +23,8 @@ parser.add_argument('-w', '--weight', type = float, default = 1.0, help = 'Posit
 parser.add_argument('-e', '--epochs', type = int, default = 10, help = 'Number of epochs to train the model for')
 args = parser.parse_args()
 
-LR = args.lr
-WEIGHT = args.w
+LR = args.learning_rate
+WEIGHT = args.weight
 BANDS = ['B2', 'B3', 'B3', 'B8', 'B2_1', 'B3_1', 'B4_1', 'B8_1']
 OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
 LOSS = model.weighted_bce(WEIGHT)
@@ -76,7 +76,7 @@ tensorboard = tf.keras.callbacks.Tensorboard(log_dir = log_dir)
 # train the model
 m.train(
         x = training,
-        epochs = args.e,
+        epochs = args.epochs,
         validation_data = evaluation,
         callbacks = [checkpoint, tensorboard]
         )
