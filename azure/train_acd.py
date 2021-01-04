@@ -23,21 +23,34 @@ parser.add_argument('-w', '--weight', type = float, default = 1.0, help = 'Posit
 parser.add_argument('-e', '--epochs', type = int, default = 10, help = 'Number of epochs to train the model for')
 parser.add_argument('-b', '--batch', type = int, default = 16, help = 'Training batch size')
 parser.add_argument('--buffer', type = int, default = 3000, help = 'Buffer size for training data shuffle')
+parser.add_argument('--kernel-size', type = int, default = 256, dest = 'kernel_size', help = 'Size in pixels of incoming patches')
+parser.add_argument('--response', type = str, required = True, help = 'Name of the response variable in tfrecords')
 args = parser.parse_args()
 
 LR = args.learning_rate
 WEIGHT = args.weight
 BANDS = ['B2', 'B3', 'B3', 'B8', 'B2_1', 'B3_1', 'B4_1', 'B8_1']
+RESPONSE = args.response
 OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
 LOSS = model.weighted_bce(WEIGHT)
 METRICS = [tf.keras.metrics.categorical_accuracy, tf.keras.metrics.MeanIoU(num_classes=2, name = 'mean_iou')]
+
+FEATURES = BANDS + [RESPONSE]
+
+# Specify the size and shape of patches expected by the model.
+KERNEL_SIZE = args.kernel_size
+KERNEL_SHAPE = [KERNEL_SIZE, KERNEL_SIZE]
+COLUMNS = [
+  tf.io.FixedLenFeature(shape=KERNEL_SHAPE, dtype=tf.float32) for k in FEATURES
+]
+FEATURES_DICT = dict(zip(FEATURES, COLUMNS))
 
 # create training dataset
 train_files = glob.glob(os.path.join(args.data_folder, 'train'))
 eval_files =  glob.glob(os.path.join(args.data_folder, 'eval'))
 
-training = processing.get_training_dataset(train_files, buffer = args.buffer, batch = args.batch)
-evaluation = processing.get_eval_dataset(eval_files)
+training = processing.get_training_dataset(train_files, ftDict = FEATURES_DICT, buffer = args.buffer, batch = args.batch)
+evaluation = processing.get_eval_dataset(eval_files, ftDict = FEATURES_DICT)
 
 # get the run context
 run = Run.get_context()

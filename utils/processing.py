@@ -100,15 +100,15 @@ def rescale(img, axes = [2]):
     scaled = tf.divide(tf.subtract(img, minimum), tf.subtract(maximum, minimum))
     return scaled
 
-def parse_tfrecord(example_proto, ftDict):
-    """The parsing function.
-    Read a serialized example into the structure defined by FEATURES_DICT.
-    Args:
-      example_proto: a serialized Example.
-    Returns: 
-      A dictionary of tensors, keyed by feature name.
-    """
-    return tf.io.parse_single_example(example_proto, ftDict)
+#def parse_tfrecord(example_proto, ftDict):
+#    """The parsing function.
+#    Read a serialized example into the structure defined by FEATURES_DICT.
+#    Args:
+#      example_proto: a serialized Example.
+#    Returns: 
+#      A dictionary of tensors, keyed by feature name.
+#    """
+#    return tf.io.parse_single_example(example_proto, ftDict)
 
 
 def to_tuple(inputs, features, response):
@@ -137,20 +137,24 @@ def to_tuple(inputs, features, response):
     # return the features and labels
     return bands, labels
 
-def get_dataset(files):
+def get_dataset(files, ftDict):
   """Function to read, parse and format to tuple a set of input tfrecord files.
   Get all the files matching the pattern, parse and convert to tuple.
   Args:
     files (list): A list of filenames storing tfrecords
+    FtDict (dic): Dictionary of input features in tfrecords
   Returns: 
     A tf.data.Dataset
   """
+  def parse_tfrecord(example_proto):
+      return tf.io.parse_single_example(example_proto, ftDict)
+  
   dataset = tf.data.TFRecordDataset(files, compression_type='GZIP')
   dataset = dataset.map(parse_tfrecord, num_parallel_calls=5)
   dataset = dataset.map(to_tuple, num_parallel_calls=5)
   return dataset
 
-def get_training_dataset(files, buffer, batch):
+def get_training_dataset(files, ftDict, buffer, batch):
 	"""
     Get the preprocessed training dataset
     Args:
@@ -164,7 +168,7 @@ def get_training_dataset(files, buffer, batch):
 	dataset = dataset.shuffle(buffer).batch(batch).repeat()
 	return dataset
 
-def get_eval_dataset(files):
+def get_eval_dataset(files, ftDict):
 	"""
     Get the preprocessed evaluation dataset
     Args:
@@ -172,6 +176,6 @@ def get_eval_dataset(files):
     Returns: 
       A tf.data.Dataset of evaluation data.
     """
-	dataset = get_dataset(files)
+	dataset = get_dataset(files, ftDict)
 	dataset = dataset.batch(1).repeat()
 	return dataset
