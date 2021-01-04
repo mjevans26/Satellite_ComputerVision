@@ -146,12 +146,19 @@ def get_dataset(files, ftDict):
   Returns: 
     A tf.data.Dataset
   """
+  keys = list(ftDict.keys())
+  features = keys[:-1]
+  response = keys[-1]
+  
   def parse_tfrecord(example_proto):
       return tf.io.parse_single_example(example_proto, ftDict)
   
+  def tupelize(inputs):
+      return to_tuple(inputs, features, response)
+  
   dataset = tf.data.TFRecordDataset(files, compression_type='GZIP')
   dataset = dataset.map(parse_tfrecord, num_parallel_calls=5)
-  dataset = dataset.map(to_tuple, num_parallel_calls=5)
+  dataset = dataset.map(tupelize, num_parallel_calls=5)
   return dataset
 
 def get_training_dataset(files, ftDict, buffer, batch):
@@ -164,7 +171,7 @@ def get_training_dataset(files, ftDict, buffer, batch):
     Returns: 
       A tf.data.Dataset of training data.
     """
-	dataset = get_dataset(files)
+	dataset = get_dataset(files, ftDict)
 	dataset = dataset.shuffle(buffer).batch(batch).repeat()
 	return dataset
 
