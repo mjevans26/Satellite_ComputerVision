@@ -21,6 +21,8 @@ parser.add_argument('--data-folder', dest = 'data_folder', type = str, required 
 parser.add_argument('-lr', '--learning_rate', type = float, default = 0.0001, help = 'Initial learning rate')
 parser.add_argument('-w', '--weight', type = float, default = 1.0, help = 'Positive sample weight for iou, bce, etc.')
 parser.add_argument('-e', '--epochs', type = int, default = 10, help = 'Number of epochs to train the model for')
+parser.add_argument('-b', '--batch', type = int, default = 16, help = 'Training batch size')
+parser.add_argument('--buffer', type = int, default = 3000, help = 'Buffer size for training data shuffle')
 args = parser.parse_args()
 
 LR = args.learning_rate
@@ -34,7 +36,7 @@ METRICS = [tf.keras.metrics.categorical_accuracy, tf.keras.metrics.MeanIoU(num_c
 train_files = glob.glob(os.path.join(args.data_folder, 'train'))
 eval_files =  glob.glob(os.path.join(args.data_folder, 'eval'))
 
-training = processing.get_training_dataset(train_files)
+training = processing.get_training_dataset(train_files, buffer = args.buffer, batch = args.batch)
 evaluation = processing.get_eval_dataset(eval_files)
 
 # get the run context
