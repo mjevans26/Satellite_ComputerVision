@@ -29,7 +29,7 @@ args = parser.parse_args()
 
 LR = args.learning_rate
 WEIGHT = args.weight
-BANDS = ['B2', 'B3', 'B3', 'B8', 'B2_1', 'B3_1', 'B4_1', 'B8_1']
+BANDS = ['B2', 'B3', 'B4', 'B8', 'B2_1', 'B3_1', 'B4_1', 'B8_1']
 RESPONSE = args.response
 OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
 LOSS = model.weighted_bce(WEIGHT)
@@ -66,8 +66,8 @@ m.compile(
         )
 
 # create special folders './outputs' and './logs' which automatically get saved
-os.makedirs('outputs', exists_OK = True)
-os.makedirs('logs', exists_OK = True)
+os.makedirs('outputs', exist_ok = True)
+os.makedirs('logs', exist_ok = True)
 out_dir = './outputs'
 log_dir = './logs'
 
@@ -86,12 +86,14 @@ checkpoint = tf.keras.callbacks.ModelCheckpoint(
     )
 
 # define a tensorboard callback to write training logs
-tensorboard = tf.keras.callbacks.Tensorboard(log_dir = log_dir)
+tensorboard = tf.keras.callbacks.TensorBoard(log_dir = log_dir)
 
 # train the model
-m.train(
+m.fit(
         x = training,
         epochs = args.epochs,
+        #TODO: make command line argument for size
+        steps_per_epoch = int(63*16),
         validation_data = evaluation,
         callbacks = [checkpoint, tensorboard]
         )

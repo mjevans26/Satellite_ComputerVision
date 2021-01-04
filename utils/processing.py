@@ -57,7 +57,7 @@ def augImg(img):
     outDims = tf.shape(img)[0:1]
     x = tf.image.random_flip_left_right(img)
     x = tf.image.random_flip_up_down(x)
-    x = tf.image.rot90(x, tf.random_uniform(shape=[], minval=0, maxval=4, dtype=tf.int32))
+    x = tf.image.rot90(x, tf.random.uniform(shape=[], minval=0, maxval=4, dtype=tf.int32))
       #x = zoom(x, outDims)
       #since were gonna map_fn this on a 4d image, output must be 3d, so squeeze the artificial 'sample' dimension
     return tf.squeeze(x)
