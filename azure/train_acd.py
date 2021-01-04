@@ -46,8 +46,10 @@ COLUMNS = [
 FEATURES_DICT = dict(zip(FEATURES, COLUMNS))
 
 # create training dataset
-train_files = glob.glob(os.path.join(args.data_folder, 'train'))
-eval_files =  glob.glob(os.path.join(args.data_folder, 'eval'))
+train_files = glob.glob(os.path.join(args.data_folder, 'training', 'UNET_256_[A-Z]*.gz'))
+eval_files =  glob.glob(os.path.join(args.data_folder, 'eval', 'UNET_256_[A-Z]*.gz'))
+
+print(len(train_files))
 
 training = processing.get_training_dataset(train_files, ftDict = FEATURES_DICT, buffer = args.buffer, batch = args.batch)
 evaluation = processing.get_eval_dataset(eval_files, ftDict = FEATURES_DICT)
@@ -93,7 +95,7 @@ m.fit(
         x = training,
         epochs = args.epochs,
         #TODO: make command line argument for size
-        steps_per_epoch = int(63*16),
+        steps_per_epoch = 63,
         validation_data = evaluation,
         callbacks = [checkpoint, tensorboard]
         )

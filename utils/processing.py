@@ -130,6 +130,8 @@ def to_tuple(inputs, features, response):
     #split input bands and labels
     bands = stacked[:,:,:len(features)]
     labels = stacked[:,:,len(features):]
+    # in case labels are >1
+    labels = tf.where(tf.greater(labels, 1.0), 1.0, labels)
     # perform color augmentation on input features
     bands = aug_color(bands)
     # standardize each patch of bands
@@ -161,7 +163,7 @@ def get_dataset(files, ftDict):
   dataset = dataset.map(tupelize, num_parallel_calls=5)
   return dataset
 
-def get_training_dataset(files, ftDict, buffer, batch):
+def get_training_dataset(files, ftDict, buff, batch):
 	"""
     Get the preprocessed training dataset
     Args:
@@ -172,7 +174,7 @@ def get_training_dataset(files, ftDict, buffer, batch):
       A tf.data.Dataset of training data.
     """
 	dataset = get_dataset(files, ftDict)
-	dataset = dataset.shuffle(buffer).batch(batch).repeat()
+	dataset = dataset.shuffle(buff).batch(batch).repeat()
 	return dataset
 
 def get_eval_dataset(files, ftDict):
@@ -184,5 +186,5 @@ def get_eval_dataset(files, ftDict):
       A tf.data.Dataset of evaluation data.
     """
 	dataset = get_dataset(files, ftDict)
-	dataset = dataset.batch(1).repeat()
+	dataset = dataset.batch(1)
 	return dataset
