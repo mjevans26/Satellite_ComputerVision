@@ -102,3 +102,6 @@ m.fit(
 
 m.save(os.path.join(out_dir, 'unet256.h5'))
 
+test = m.evaluate(evaluation, return_dict = True)
+iou = test.get('mean_iou')
+run.log('IoU', iou)
