@@ -51,7 +51,7 @@ eval_files =  glob.glob(os.path.join(args.data_folder, 'eval', 'UNET_256_[A-Z]*.
 
 print(len(train_files))
 
-training = processing.get_training_dataset(train_files, ftDict = FEATURES_DICT, buffer = args.buffer, batch = args.batch)
+training = processing.get_training_dataset(train_files, ftDict = FEATURES_DICT, buff = args.buffer, batch = args.batch)
 evaluation = processing.get_eval_dataset(eval_files, ftDict = FEATURES_DICT)
 
 # get the run context
