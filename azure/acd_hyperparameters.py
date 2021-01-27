@@ -78,17 +78,32 @@ now = datetime.now()
 date = now.strftime("%d%b%y")
 date
 
-# define a checkpoint callback to save best models during training
-checkpoint = tf.keras.callbacks.ModelCheckpoint(
-    os.path.join(out_dir, 'best_weights_' + date + '.hdf5'),
-    monitor='val_mean_iou',
-    verbose=1,
-    save_best_only=True,
-    mode='max'
-    )
+# Helper class for real-time logging
+class CheckpointCallback(tf.keras.callbacks.Callback):
+    def __init__(self, run):
+        self.run = run
 
-# define a tensorboard callback to write training logs
-tensorboard = tf.keras.callbacks.TensorBoard(log_dir = log_dir)
+    def on_train_begin(self, logs={}):
+        return
+
+    def on_train_end(self, logs={}):
+        return
+
+    def on_epoch_begin(self, epoch, logs={}):
+        return
+
+    def on_epoch_end(self, epoch, logs={}):
+        self.run.log('IoU', logs.get('val_mean_iou'))
+        return
+
+    def on_batch_begin(self, batch, logs={}):
+        return
+
+    def on_batch_end(self, batch, logs={}):
+        return
+
+# instantiate an instance of the helper callback using the current run context
+checkpoint = CheckpointCallback(run)
 
 # train the model
 m.fit(
@@ -97,7 +112,7 @@ m.fit(
         #TODO: make command line argument for size
         steps_per_epoch = 63,
         validation_data = evaluation,
-        callbacks = [checkpoint, tensorboard]
+        callbacks = [checkpoint]
         )
 
 m.save(os.path.join(out_dir, 'unet256.h5'))
