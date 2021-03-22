@@ -11,27 +11,27 @@ import json
 import rasterio as rio
 
 # TODO: automate spliting of full GEE path
-def doExport(image, bucket, path, out_image_base, kernel_shape, kernel_buffer, region):
+def doExport(image, desc, bucket, filenameprefix, kernel_buffer, region):
   """
-  Export an image from GEE as TFRecords for prediction.  Block until complete.
+  Run an image export task on which to run predictions.  Block until complete.
   Parameters:
     image (ee.Image): image to be exported for prediction
     path (str): google cloud directory path for export
     out_image_base (str): base filename of exported image
     kernel_buffer (array<int>): pixels to buffer the prediction patch. half added to each side
-    region (ee.Geometry): geometry containing the image
+    region (ee.Geometry):
   """
   task = ee.batch.Export.image.toCloudStorage(
-    image = image, 
-    description = out_image_base, 
+    image = image.select(BANDS), 
+    description = desc, 
     bucket = bucket, 
-    fileNamePrefix = join(path, out_image_base),
+    fileNamePrefix = filenameprefix,
     region = region,#.getInfo()['coordinates'], 
     scale = 10, 
     fileFormat = 'TFRecord', 
     maxPixels = 1e13,
     formatOptions = { 
-      'patchDimensions': kernel_shape,
+      'patchDimensions': KERNEL_SHAPE,
       'kernelSize': kernel_buffer,
       'compressed': True,
       'maxFileSize': 104857600
@@ -44,6 +44,12 @@ def doExport(image, bucket, path, out_image_base, kernel_shape, kernel_buffer, r
   import time
   while task.active():
     time.sleep(30)
+
+  # Error condition
+  if task.status()['state'] != 'COMPLETED':
+    print('Error with image export.')
+  else:
+    print('Image export completed.')
 
   # Error condition
   if task.status()['state'] != 'COMPLETED':
@@ -168,12 +174,14 @@ def doPrediction(pred_path, pred_image_base, user_folder, out_image_base, kernel
   out_image_asset = join(user_folder, out_image_base)
   !earthengine upload image --asset_id={out_image_asset} {out_image_files} {jsonFile}
   
-def makePredDataset(pred_path, pred_image_base, kernel_buffer):
+def makePredDataset(pred_path, pred_image_base, kernel_buffer, features, raw = None):
     """ Make a TFRecord Dataset that can be used for predictions
     Parameters:
         pred_path (str): path to .tfrecord files
         pred_image_base (str): pattern matching basename of file(s)
         kernel_buffer (tpl): pixels to trim from H, W dimensions of prediction
+        features (list): names of features in incoming data
+        raw (list): name(s) of features not to be normalized
     Return:
         TFRecord Dataset
     """
@@ -198,6 +206,7 @@ def makePredDataset(pred_path, pred_image_base, kernel_buffer):
   # Make sure the files are in the right order.
   imageFilesList.sort()
 
+  # Get set up for prediction.
   x_buffer = int(kernel_buffer[0] / 2)
   y_buffer = int(kernel_buffer[1] / 2)
 
@@ -216,10 +225,18 @@ def makePredDataset(pred_path, pred_image_base, kernel_buffer):
     return tf.io.parse_single_example(example_proto, imageFeaturesDict)
 
   def toTupleImage(dic):
-    inputsList = [dic.get(key) for key in BANDS]
-    stacked = tf.stack(inputsList, axis=0)
-    stacked = tf.transpose(stacked, [1, 2, 0])
-    stacked = normalize(stacked, [0, 1])
+    if raw:
+        features = [i for i in features if i not in raw]
+        normList = [dic.get(key) for key in features]
+        rawList = [dic.get(key) for key in raw]
+        normStack = tf.transpose(tf.stack(normList, axis = 0), [1 ,2, 0])
+        rawStack = tf.transpose(tf.stack(rawList, axis = 0), [1, 2, 0])
+        stacked = normalize(normStack, [0, 1])
+        stacked = tf.concat([normStack, rawStack], axis=2)
+    else:
+        featList = dic.get(key) for key in features]
+        stacked = tf.transpose(tf.stack(featList, axis = 0), [1,2,0])
+        stacked = normalize(stacked, [0,1])
     return stacked
   
   # Create a dataset(s) from the TFRecord file(s) in Cloud Storage.
@@ -258,21 +275,28 @@ def make_array_predictions(imageDataset, jsonFile, kernel_buffer):
     # Perform inference.
     print('Running predictions...')
     predictions = m.predict(imageDataset, steps=patches, verbose=1)
-
+    
+    # some models will outputs probs and classes as a list
+    if type(predictions) == list:
+        # in this case, concatenate list elments into a single 4d array along last dimension
+        predictions = np.concatenate(predictions, axis = 3)
+        
     x_buffer = int(kernel_buffer[0] / 2)
     y_buffer = int(kernel_buffer[1] / 2)
 
     x = 1
     for prediction in predictions:
       print('Writing patch ' + str(x) + '...')
-      predPatch = np.add(np.argmax(prediction, axis = 2), 1)
-      probPatch = np.max(prediction, axis = 2)
-      predPatch = predPatch[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE]
-      probPatch = probPatch[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE]
-      # stack probabilities and classes along channel dimension
-      patch = np.stack([predPatch, probPatch], axis = 2)
+      # lets just write probabilities, classes can be calculated post processing if not present already
+      patch = prediction[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE, :]
+#      predPatch = np.add(np.argmax(prediction, axis = 2), 1)
+#      probPatch = np.max(prediction, axis = 2)
+#      predPatch = predPatch[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE]
+#      probPatch = probPatch[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE]
+#      # stack probabilities and classes along channel dimension
+#      patch = np.stack([predPatch, probPatch], axis = 2)
 
-      ## NOTE: Predictions come out with y as 0 dimension, x as 1 dimension
+      ## NOTE: Predictions come out with y as 0 dimension (ie. rows), x as 1 dimension (ie. columns)
       # if we're at the beginning of a row
       if x%cols == 1:
         row = patch
@@ -344,20 +368,22 @@ def write_tfrecord_predictions(imageDataset, pred_path, out_image_base, kernel_b
 
     writer.close()
     
-def write_geotiff_predictions(pred_path, pred_image_base, kernel_buffer, cloud = True):
-  """Write a numpy array as a GeoTIFF and optionally export to Google Cloud
+def write_geotiff_predictions(pred_path, pred_image_base, kernel_buffer, n, export = True):
+  """Write a numpy array as a GeoTIFF to Google Cloud
   Parameters:
-    pred_path (str): path to .tfrecord files
-    pred_image_base (str): pattern matching basename of file(s)
-    kernel_buffer (tpl): pixels to trim from H, W dimensions of prediction
-    cloud (bool): copy output .tif file to google cloud using gsutil?
+    pred_path (str): google cloud directory containg prediction files
+    pred_image_base (str): pattern matching file basename
+    kernel_buffer (tpl): x and y padding around patches
+    n (int): number of rows to read before writing a file
+    export (bool): export geotiffs to cloud storage upon writing?
   Return:
-    empty: writes a geotiff file to current working directory
+    empty: writes geotiff records temporarily to working directory, then moves to GCP
   """
-  # Set our output fiilenames
-  out_geotiff = pred_image_base + '.tif'
-  out_image_file = join(pred_path, 'outputs', out_geotiff)
-  print(out_image_file)
+  import rasterio as rio
+
+  x_buffer = int(kernel_buffer[0]/2)
+  y_buffer = int(kernel_buffer[1]/2)
+  kernel = 256
 
   # Load the contents of the mixer file to a JSON object.
   jsonFile = join(pred_path, pred_image_base + '*.json')
@@ -366,27 +392,79 @@ def write_geotiff_predictions(pred_path, pred_image_base, kernel_buffer, cloud =
   mixer = json.loads(jsonText.nlstr)
   transform = mixer['projection']['affine']['doubleMatrix']
   crs = mixer['projection']['crs']
+  ppr = mixer['patchesPerRow']
+  tp = mixer['totalPatches']
+  rows = int(tp/ppr)
+  # define a rasterio affine transformation matrix based on the json mixer crs
   affine = rio.Affine(transform[0], transform[1], transform[2], transform[3], transform[4], transform[5])
 
-  # get our prediction data and make predictions
-  data = makePredDataset(pred_path, pred_image_base, kernel_buffer)
-  image = make_array_predictions(data, jsonFile, kernel_buffer)
+  # get our prediction data and make predictions one row at a time
+  data = makePredDataset(pred_path, pred_image_base, kernel_buffer).unbatch().batch(ppr)
+  iterator = iter(data)
+  # initial row offset for affine window is 0
+  row_offset = 0
+  # create counter for number of rows in current file
+  counter = 0
+  for row in range(rows):
+    # predict a row of patches
+    predictions = m.predict(iterator.next(), batch_size = 1, steps = ppr)
+    # trim the buffer from predictions
+    trimmed = [p[x_buffer:x_buffer + kernel, y_buffer: y_buffer + kernel, :] for p in predictions]
+    patch = np.concatenate(trimmed, axis = 1)
 
-  with rio.open(
-    out_geotiff,
-    'w',
-    driver = 'GTiff',
-    width = image.shape[0],
-    height = image.shape[1],
-    count = 2,
-    dtype = image.dtype,
-    crs = crs,
-    transform = affine) as dst:
-    dst.write(np.transpose(image, (2,0,1)))
-  print('Successfully wrote geotiff to local storage')
-  
-  if cloud:
-      !gsutil cp {out_geotiff} {out_image_file}
+    # for the first row we set our image equal to the row patch, define the height and return to top of loop
+    if counter == 0:
+      image = patch
+      counter += 1
+    
+    # for any other row we concatenate with previous rows (i.e., 'image')
+    else:
+      # concatenate rows along first axis (i.e. y axis)
+      image = np.concatenate([image, patch], axis = 0)
+
+      # increase counter
+      counter += 1
+
+    # for every nth row, or the last one
+    if counter == n or row == rows-1:
+      H = image.shape[0]
+      W = image.shape[1]
+      C = image.shape[2]
+      print('current image shape', image.shape)
+      # Set our output filenames
+      out_geotiff = pred_image_base + '{:05d}.tif'.format(row)
+      out_image_file = join(pred_path, 'outputs', 'geotiff', out_geotiff)
+      print(out_image_file)
+
+      # create affine matrix for the current slice
+      window = rio.windows.Window(col_off = 0, row_off = row_offset, width = W, height = H)
+      out_affine = rio.windows.transform(window, affine)
+      # set our counter equal to the most recently written row
+
+      with rio.open(
+        out_geotiff,
+        'w',
+        driver = 'GTiff',
+        width = image.shape[1],
+        height = image.shape[0],
+        count = C,
+        dtype = image.dtype,
+        crs = crs,
+        transform = out_affine) as dst:
+        dst.write(np.transpose(image, (2,0,1)))
+
+      print('Successfully wrote geotiff to local storage')
+      row_offset += H
+
+      #reset counter
+      counter = 0
+
+      if export:
+        # create a cloud optimized geotiff
+        # !gdal_translate {out_geotiff} {out_geotiff} -co TILED=YES -co COPY_SRC_OVERVIEWS=YES -co COMPRESS=DEFLATE
+        # move to GCS
+        !gsutil mv {out_geotiff} {out_image_file}
+        print('Moved', out_geotiff, 'to cloud')
 
 def ingest_predictions(pred_path, out_image_base, user_folder):
   """
@@ -407,21 +485,45 @@ def ingest_predictions(pred_path, out_image_base, user_folder):
   !earthengine upload image --asset_id={out_image_asset} {out_image_files} {jsonFile[0]}
   
 def get_img_bounds(img, jsonFile):
-    """Get the projected top left and bottom right coordinates of an image
-    Parameters:
-        img (ndarray): image to generate bounding coordinates for
-        jsonFile (str): path to json file defining crs and image size
-    Return:
-        tpl: [[lat min, lon min],[lat max, lon max]]
-    """
+  """Get the projected top left and bottom right coordinates of an image
+  Parameters:
+      img (ndarray): image to generate bounding coordinates for
+      jsonFile (str): path to json file defining crs and image size
+  Return:
+      tpl: [[lat min, lon min],[lat max, lon max]]
+  """
+  import numpy as np
+  import rasterio as rio
+  from rasterio.crs import CRS
+  from rasterio.warp import transform_bounds
+  from rasterio.transform import array_bounds 
+ 
+  dst_crs = CRS.from_string(dst_crs)
   jsonText = !gsutil cat {jsonFile}
   # Get a single string w/ newlines from the IPython.utils.text.SList
   mixer = json.loads(jsonText.nlstr)
   transform = mixer['projection']['affine']['doubleMatrix']
-  print(transform)
+  src_crs = CRS.from_string(mixer['projection']['crs'])
+  print(src_crs)
   affine = rio.Affine(transform[0], transform[1], transform[2], transform[3], transform[4], transform[5])
-  H,W = img.shape
-  bounds = rio.transform.array_bounds(H, W, affine)
+  H,W = [0,0]
+
+  if type(img) == np.ndarray:
+    print('input image is numpy')
+    H,W = img.shape
+    print('image shape is ', H, W)
+    bounds = array_bounds(H, W, affine)
+    
+  elif type(img) == str:
+    print('input image is geotiff')
+    with rio.open(img) as src:
+      bounds = src.bounds
+      # H, W = src.shape
+
   print(bounds)
   lon_min, lat_min, lon_max, lat_max = bounds
+  # if we need to transform the bounds, such as for folium ('EPSG:3857')
+  out_bounds = transform_bounds(src_crs, dst_crs, left = lon_min, bottom = lat_min, right = lon_max, top = lat_max, densify_pts=21)
+  lon_min, lat_min, lon_max, lat_max = out_bounds
+  print(out_bounds)
   return [[lat_min, lon_min], [lat_max, lon_max]]
