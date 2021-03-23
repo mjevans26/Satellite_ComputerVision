@@ -18,23 +18,25 @@ from rasterio.transform import array_bounds
      
 
 # TODO: automate spliting of full GEE path
-def doExport(image, desc, bucket, filenameprefix, kernel_buffer, region):
+def doExport(image, features, scale, desc, bucket, filenameprefix, kernel_buffer, region):
   """
   Run an image export task on which to run predictions.  Block until complete.
   Parameters:
     image (ee.Image): image to be exported for prediction
+    features (list): list of band names to include in export
+    scale (int): pixel scale
     path (str): google cloud directory path for export
     out_image_base (str): base filename of exported image
     kernel_buffer (array<int>): pixels to buffer the prediction patch. half added to each side
     region (ee.Geometry):
   """
   task = ee.batch.Export.image.toCloudStorage(
-    image = image.select(BANDS), 
+    image = image.select(features), 
     description = desc, 
     bucket = bucket, 
     fileNamePrefix = filenameprefix,
     region = region,#.getInfo()['coordinates'], 
-    scale = 10, 
+    scale = scale, 
     fileFormat = 'TFRecord', 
     maxPixels = 1e13,
     formatOptions = { 
@@ -114,10 +116,10 @@ def makePredDataset(file_list, kernel_buffer, features, one_hot = None):
 
   imageColumns = [
     tf.io.FixedLenFeature(shape=buffered_shape, dtype=tf.float32) 
-      for k in BANDS
+      for k in features
   ]
 
-  imageFeaturesDict = dict(zip(BANDS, imageColumns))
+  imageFeaturesDict = dict(zip(features, imageColumns))
 
   def parse_image(example_proto):
     return tf.io.parse_single_example(example_proto, imageFeaturesDict)
@@ -237,7 +239,15 @@ def write_tfrecord_predictions(imageDataset, pred_path, out_image_base, kernel_b
     print('Running predictions...')
     predictions = m.predict(imageDataset, steps=None, verbose=1)
     # print(predictions[0])
-
+    
+    # some models will outputs probs and classes as a list
+    if type(predictions) == list:
+        # in this case, concatenate list elments into a single 4d array along last dimension
+        predictions = np.concatenate(predictions, axis = 3)
+    
+    # get the number of bands (should usually be one or two)
+    C = predictions.shape[-1]
+    
     out_image_file = join(pred_path,
                           'outputs/tfrecord',
                           '{}.TFRecord'.format(out_image_base))
@@ -252,22 +262,31 @@ def write_tfrecord_predictions(imageDataset, pred_path, out_image_base, kernel_b
 
     for prediction in predictions:
       print('Writing patch ' + str(patches) + '...')
-      predPatch = np.add(np.argmax(prediction, axis = 2), 1)
-      probPatch = np.max(prediction, axis = 2)
-      predPatch = predPatch[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE]
-      probPatch = probPatch[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE]
-
+      # lets just write probabilities, classes can be calculated post processing if not present already
+      patch = prediction[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE, :]
+#      predPatch = np.add(np.argmax(prediction, axis = 2), 1)
+#      probPatch = np.max(prediction, axis = 2)
+#      predPatch = predPatch[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE]
+#      probPatch = probPatch[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE]
+      
+      # for each band in prediction, create a tf train feature
+      feature = {}
+      for i in range(C):
+          feat = tf.train.Feature(float_list = tf.train.FloatList(value = np.ndarray.flatten(patch[:,:,i])))
+          feature['b{}'.format(i+1)] = feat
+          
       # Create an example.
       example = tf.train.Example(
         features=tf.train.Features(
-          feature={
-            'class': tf.train.Feature(
-                int64_list=tf.train.Int64List(
-                    value = np.ndarray.flatten(predPatch))),
-            'prob': tf.train.Feature(
-                float_list = tf.train.FloatList(
-                    value = np.ndarray.flatten(probPatch)))
-          }
+                feature
+#          feature={
+#            'class': tf.train.Feature(
+#                int64_list=tf.train.Int64List(
+#                    value = np.ndarray.flatten(predPatch))),
+#            'prob': tf.train.Feature(
+#                float_list = tf.train.FloatList(
+#                    value = np.ndarray.flatten(probPatch)))
+#          }
         )
       )
       # Write the example.
@@ -275,18 +294,20 @@ def write_tfrecord_predictions(imageDataset, pred_path, out_image_base, kernel_b
       patches += 1
 
     writer.close()
-    
-def write_geotiff_predictions(pred_path, pred_image_base, kernel_buffer, bucket, n, export = True):
+
+# TODO: re-calculate n and write files not strictly based on rows
+def write_geotiff_predictions(file_list, kernel_buffer, bucket, json_file, features, one_hot, export = True):
   """Write a numpy array as a GeoTIFF to Google Cloud
   Parameters:
     pred_path (str): google cloud directory containg prediction files
     pred_image_base (str): pattern matching file basename
     kernel_buffer (tpl): x and y padding around patches
     bucket (gcs bucket): google-cloud-storage bucket object
-    n (int): number of rows to read before writing a file
+    features (list): list of incoming feature names
+    one_hot (dict): dictionary with key, value pairs of features to be cast to one hot and desired depth
     export (bool): export geotiffs to cloud storage upon writing?
   Return:
-    empty: writes geotiff records temporarily to working directory, then moves to GCP
+    empty: writes geotiff records temporarily to working directory
   """
   import rasterio as rio
 
@@ -295,7 +316,7 @@ def write_geotiff_predictions(pred_path, pred_image_base, kernel_buffer, bucket,
   kernel = 256
 
   # Load the contents of the mixer file to a JSON object.
-  blob = bucket.get_blob(join(pred_path, pred_image_base + '_mixer.json'))
+  blob = bucket.get_blob(json_file)
   jsonFile = blob.download_as_text()
   jsonText = jsonFile.decode('utf-8')#23Mar21 update to use google-cloud-storage library
   
@@ -303,17 +324,21 @@ def write_geotiff_predictions(pred_path, pred_image_base, kernel_buffer, bucket,
 #  jsonText = !gsutil cat {jsonFile}
   
   # Get a single string w/ newlines from the IPython.utils.text.SList
-  mixer = json.loads(jsonText.nlstr)
+  mixer = json.loads(jsonText)
   transform = mixer['projection']['affine']['doubleMatrix']
   crs = mixer['projection']['crs']
   ppr = mixer['patchesPerRow']
   tp = mixer['totalPatches']
   rows = int(tp/ppr)
+  
+  # set interval for writing predictions
+  n = 10
+  
   # define a rasterio affine transformation matrix based on the json mixer crs
   affine = rio.Affine(transform[0], transform[1], transform[2], transform[3], transform[4], transform[5])
 
   # get our prediction data and make predictions one row at a time
-  data = makePredDataset(pred_path, pred_image_base, kernel_buffer).unbatch().batch(ppr)
+  data = makePredDataset(file_list = file_list, kernel_buffer, features, one_hot).unbatch().batch(ppr)
   iterator = iter(data)
   # initial row offset for affine window is 0
   row_offset = 0
@@ -449,17 +474,19 @@ def get_img_bounds(img, bucket, jsonFile, dst_crs = None):
           print(out_bounds)
       return [[lat_min, lon_min], [lat_max, lon_max]]
 
-def doPrediction(bucket, pred_path, pred_image_base, user_folder, out_image_base, kernel_buffer, region):
+def doPrediction(bucket, pred_path, pred_image_base, features, one_hot, out_image_base, kernel_buffer):
   """
-  Perform inference on exported imagery, upload to Earth Engine.
+  Given a bucket and path to prediction images, create a prediction dataset, make predictions
+  and write tfrecords to GCS
   Parameters:
     bucket: (Bucket): google-cloud-storage bucket object
-    pred_path (str): Google cloud path storing prediction image files
+    pred_path (str): relative GCS path storing prediction image files
     pred_image_base (str): base filename of prediction files
     user_folder (str): GEE directory to store asset
     out_image_base (str): base filename for GEE asset
     kernel_buffer (Array<int>): length 2 array 
-    region (ee.Geometry)):
+  Return:
+    list: list of written image filenames to be used in earthengine upload
   """
 
   print('Looking for TFRecord files...')
@@ -487,8 +514,10 @@ def doPrediction(bucket, pred_path, pred_image_base, user_folder, out_image_base
   pprint('image files:', imageFilesList)
   print('json file:', jsonFile)
   
+  # make a prediction dataset from the given files
+  
   # Load the contents of the mixer file to a JSON object.
-  blob = bucket.get_blob(join(pred_path, pred_image_base + '_mixer.json'))
+  blob = bucket.get_blob(jsonFile)
   jsonText = blob.download_as_string().decode('utf-8')
   mixer = json.loads(jsonText)
 #  jsonText = !gsutil cat {jsonFile}
@@ -497,76 +526,79 @@ def doPrediction(bucket, pred_path, pred_image_base, user_folder, out_image_base
   pprint(mixer)
   patches = mixer['totalPatches']
   
-  # Get set up for prediction.
-  x_buffer = int(kernel_buffer[0] / 2)
-  y_buffer = int(kernel_buffer[1] / 2)
-
-  buffered_shape = [
-      KERNEL_SHAPE[0] + kernel_buffer[0],
-      KERNEL_SHAPE[1] + kernel_buffer[1]]
-
-  imageColumns = [
-    tf.io.FixedLenFeature(shape=buffered_shape, dtype=tf.float32) 
-      for k in BANDS
-  ]
-
-  imageFeaturesDict = dict(zip(BANDS, imageColumns))
-
-  def parse_image(example_proto):
-    return tf.io.parse_single_example(example_proto, imageFeaturesDict)
-
-  def toTupleImage(dic):
-    inputsList = [dic.get(key) for key in BANDS]
-    stacked = tf.stack(inputsList, axis=0)
-    stacked = tf.transpose(stacked, [1, 2, 0])
-    stacked = normalize(stacked, [0, 1])
-    return stacked
+#  # Get set up for prediction.
+#  x_buffer = int(kernel_buffer[0] / 2)
+#  y_buffer = int(kernel_buffer[1] / 2)
+#
+#  buffered_shape = [
+#      KERNEL_SHAPE[0] + kernel_buffer[0],
+#      KERNEL_SHAPE[1] + kernel_buffer[1]]
+#
+#  imageColumns = [
+#    tf.io.FixedLenFeature(shape=buffered_shape, dtype=tf.float32) 
+#      for k in BANDS
+#  ]
+#
+#  imageFeaturesDict = dict(zip(BANDS, imageColumns))
+#
+#  def parse_image(example_proto):
+#    return tf.io.parse_single_example(example_proto, imageFeaturesDict)
+#
+#  def toTupleImage(dic):
+#    inputsList = [dic.get(key) for key in BANDS]
+#    stacked = tf.stack(inputsList, axis=0)
+#    stacked = tf.transpose(stacked, [1, 2, 0])
+#    stacked = normalize(stacked, [0, 1])
+#    return stacked
   
   # Create a dataset(s) from the TFRecord file(s) in Cloud Storage.
   i = 0
   patches = 0
   written_files = []
   while i < len(imageFilesList):
-
-    imageDataset = tf.data.TFRecordDataset(imageFilesList[i:i+100], compression_type='GZIP')
-    imageDataset = imageDataset.map(parse_image, num_parallel_calls=5)
-    imageDataset = imageDataset.map(toTupleImage).batch(1)
+    imageDataset = makePredDataset(file_list = imageFileList[i:i+100], kernel_buffer = kernel_buffer, features = features, one_hot = one_hot)
+#    imageDataset = tf.data.TFRecordDataset(imageFilesList[i:i+100], compression_type='GZIP')
+#    imageDataset = imageDataset.map(parse_image, num_parallel_calls=5)
+#    imageDataset = imageDataset.map(toTupleImage).batch(1)
     
-    # Perform inference.
-    print('Running predictions...')
-    predictions = m.predict(imageDataset, steps=None, verbose=1)
-    # print(predictions[0])
-
-    out_image_file = join(pred_path,
-                          'outputs',
-                          '{}{:2d}.TFRecord'.format(out_image_base, i))
-    
-    print('Writing predictions to ' + out_image_file + '...')
-    writer = tf.io.TFRecordWriter(out_image_file)
-    for predictionPatch in predictions:
-      print('Writing patch ' + str(patches) + '...')
-      predictionPatch = predictionPatch[
-          x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE]
-
-      # Create an example.
-      example = tf.train.Example(
-        features=tf.train.Features(
-          feature={
-            'probability': tf.train.Feature(
-                float_list=tf.train.FloatList(
-                    value=predictionPatch.flatten()))
-          }
-        )
-      )
-      # Write the example.
-      writer.write(example.SerializeToString())
-      patches += 1
-
-    writer.close()
+    out_image_base = out_image_base + '{:04d}'.format(i)
+    out_image_file = join('gs://', bucket.name, pred_path, 'outputs/tfrecord', out_image_base + '.TFRecord)
+    write_tfrecord_predictions(imageDataset, pred_path = pred_path, out_image_base = out_image_base, kernel_buffer = kernel_buffer)
+#    # Perform inference.
+#    print('Running predictions...')
+#    predictions = m.predict(imageDataset, steps=None, verbose=1)
+#    # print(predictions[0])
+#
+#
+#    
+#    print('Writing predictions to ' + out_image_file + '...')
+#    writer = tf.io.TFRecordWriter(out_image_file)
+#    for predictionPatch in predictions:
+#      print('Writing patch ' + str(patches) + '...')
+#      predictionPatch = predictionPatch[
+#          x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE]
+#
+#      # Create an example.
+#      example = tf.train.Example(
+#        features=tf.train.Features(
+#          feature={
+#            'probability': tf.train.Feature(
+#                float_list=tf.train.FloatList(
+#                    value=predictionPatch.flatten()))
+#          }
+#        )
+#      )
+#      # Write the example.
+#      writer.write(example.SerializeToString())
+#      patches += 1
+#
+#    writer.close()
     i += 100
     written_files.append(out_image_file)
  
   out_image_files = ' '.join(written_files)
   # Start the upload.
-  out_image_asset = join(user_folder, out_image_base)
-  !earthengine upload image --asset_id={out_image_asset} {out_image_files} {jsonFile}
+#  out_image_asset = join(user_folder, out_image_base)
+#  !earthengine upload image --asset_id={out_image_asset} {out_image_files} {jsonFile}
+  # return list of written image files for use in gee upload
+  return out_image_files
