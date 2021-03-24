@@ -8,7 +8,7 @@ from os.path import join
 import ee
 import json
 import numpy as np
-from google.cloud import storage
+import tensorflow as tf
 #import gsutil
 import rasterio as rio
 
@@ -18,7 +18,7 @@ from rasterio.transform import array_bounds
      
 
 # TODO: automate spliting of full GEE path
-def doExport(image, features, scale, desc, bucket, filenameprefix, kernel_buffer, region):
+def doExport(image, features, scale, desc, bucket, filenameprefix, kernel_shape, kernel_buffer, region):
   """
   Run an image export task on which to run predictions.  Block until complete.
   Parameters:
@@ -27,6 +27,7 @@ def doExport(image, features, scale, desc, bucket, filenameprefix, kernel_buffer
     scale (int): pixel scale
     path (str): google cloud directory path for export
     out_image_base (str): base filename of exported image
+    kernel_shape (array<int>): size of image patch in pixels
     kernel_buffer (array<int>): pixels to buffer the prediction patch. half added to each side
     region (ee.Geometry):
   """
@@ -40,7 +41,7 @@ def doExport(image, features, scale, desc, bucket, filenameprefix, kernel_buffer
     fileFormat = 'TFRecord', 
     maxPixels = 1e13,
     formatOptions = { 
-      'patchDimensions': KERNEL_SHAPE,
+      'patchDimensions': kernel_shape,
       'kernelSize': kernel_buffer,
       'compressed': True,
       'maxFileSize': 104857600
@@ -68,13 +69,14 @@ def doExport(image, features, scale, desc, bucket, filenameprefix, kernel_buffer
     
   
 #def makePredDataset(bucket, pred_path, pred_image_base, kernel_buffer, features, raw = None):
-def makePredDataset(file_list, kernel_buffer, features, one_hot = None):
+def makePredDataset(file_list, kernel_shape = [256, 256], kernel_buffer = [128, 128], features, one_hot = None):
     """ Make a TFRecord Dataset that can be used for predictions
     Parameters:
         bucket (GCS bucket): google cloud storage bucket object
         file_list: list of complete pathnames for prediction data files
         pred_path (str): path to .tfrecord files
         pred_image_base (str): pattern matching basename of file(s)
+        kernel_shape (tpl): size of image patch in pixels
         kernel_buffer (tpl): pixels to trim from H, W dimensions of prediction
         features (list): names of features in incoming data
         one_hot (dict): key:value pairs for name of one-hot variable and desired one-hot depth
@@ -111,8 +113,8 @@ def makePredDataset(file_list, kernel_buffer, features, one_hot = None):
     y_buffer = int(kernel_buffer[1] / 2)
     
     buffered_shape = [
-        KERNEL_SHAPE[0] + kernel_buffer[0],
-        KERNEL_SHAPE[1] + kernel_buffer[1]]
+        kernel_shape[0] + kernel_buffer[0],
+        kernel_shape[1] + kernel_buffer[1]]
     
     imageColumns = [
       tf.io.FixedLenFeature(shape=buffered_shape, dtype=tf.float32) 
@@ -150,7 +152,7 @@ def makePredDataset(file_list, kernel_buffer, features, one_hot = None):
     imageDataset = imageDataset.map(toTupleImage).batch(1)
     return imageDataset
 
-def make_array_predictions(imageDataset, jsonFile, kernel_buffer):
+def make_array_predictions(imageDataset, jsonFile, kernel_shape = [256, 256], kernel_buffer = [128,128]):
     """Create a 3D array of prediction outputs from TFRecord dataset
     
     Given a set of TFRecords representing image patches on which to run model predictions,
@@ -161,6 +163,7 @@ def make_array_predictions(imageDataset, jsonFile, kernel_buffer):
     Parameters:
         imageDataset (tf.Dataset): image patch tensors on which to run predictions
         jsonFile (str): complete GCS filepath to json file
+        kernel_size(tpl): size of image patch in pixels
         kernel_buffer (tpl): pixels to trim from H, W, dimensions of each output patch
     Return:
         ndarray: 3D array of prediction outputs.
@@ -193,12 +196,14 @@ def make_array_predictions(imageDataset, jsonFile, kernel_buffer):
         
     x_buffer = int(kernel_buffer[0] / 2)
     y_buffer = int(kernel_buffer[1] / 2)
+    x_size = kernel_shape[0]+y_buffer
+    y_size = kernel_shape[1]+x_buffer
 
     x = 1
     for prediction in predictions:
       print('Writing patch ' + str(x) + '...')
       # lets just write probabilities, classes can be calculated post processing if not present already
-      patch = prediction[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE, :]
+      patch = prediction[y_buffer:y_size, x_buffer:x_size, :]
 #      predPatch = np.add(np.argmax(prediction, axis = 2), 1)
 #      probPatch = np.max(prediction, axis = 2)
 #      predPatch = predPatch[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE]
@@ -224,13 +229,14 @@ def make_array_predictions(imageDataset, jsonFile, kernel_buffer):
 
     return rows
 
-def write_tfrecord_predictions(imageDataset, pred_path, out_image_base, kernel_buffer):
+def write_tfrecord_predictions(imageDataset, pred_path, out_image_base, kernel_shape = [256, 256], kernel_buffer = [128,128]):
     """Generate predictions and save as TFRecords to Cloud Storage
     Parameters:
       imageDataset (tf.Dataset): data on which to run predictions
       pred_path (str): full path to output directory 
       out_image_base (str): file basename for input and output files
-      kernel_buffer (tpl): [x, y] size of buffer to be trimmed from predictions
+      kernel_shape (tpl): [y, x] size of image patch in pixels
+      kernel_buffer (tpl): [y, x] size of buffer to be trimmed from predictions
 
     Return:
       empty: Writes TFRecord files to specified destination
@@ -259,11 +265,13 @@ def write_tfrecord_predictions(imageDataset, pred_path, out_image_base, kernel_b
 
     x_buffer = int(kernel_buffer[0] / 2)
     y_buffer = int(kernel_buffer[1] / 2)
+    x_size = x_buffer + kernel_shape[1]
+    y_size = y_buffer + kernel_shape[0]
 
     for prediction in predictions:
       print('Writing patch ' + str(patches) + '...')
       # lets just write probabilities, classes can be calculated post processing if not present already
-      patch = prediction[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE, :]
+      patch = prediction[y_buffer:y_size, x_buffer:x_size, :]
 #      predPatch = np.add(np.argmax(prediction, axis = 2), 1)
 #      probPatch = np.max(prediction, axis = 2)
 #      predPatch = predPatch[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE]
@@ -296,11 +304,12 @@ def write_tfrecord_predictions(imageDataset, pred_path, out_image_base, kernel_b
     writer.close()
 
 # TODO: re-calculate n and write files not strictly based on rows
-def write_geotiff_predictions(file_list, kernel_buffer, bucket, json_file, features, one_hot, export = True):
+def write_geotiff_predictions(file_list, kernel_shape = [256, 256], kernel_buffer = [128,128], bucket, json_file, features, one_hot, export = True):
   """Write a numpy array as a GeoTIFF to Google Cloud
   Parameters:
     pred_path (str): google cloud directory containg prediction files
     pred_image_base (str): pattern matching file basename
+    kernel_shape (tpl): [y, x] size of image patch in pixels
     kernel_buffer (tpl): x and y padding around patches
     bucket (gcs bucket): google-cloud-storage bucket object
     features (list): list of incoming feature names
@@ -309,11 +318,11 @@ def write_geotiff_predictions(file_list, kernel_buffer, bucket, json_file, featu
   Return:
     empty: writes geotiff records temporarily to working directory
   """
-  import rasterio as rio
 
   x_buffer = int(kernel_buffer[0]/2)
   y_buffer = int(kernel_buffer[1]/2)
-  kernel = 256
+  x_size = x_buffer + kernel_shape[1]
+  y_size = y_buffer + kernel_shape[0]
 
   # Load the contents of the mixer file to a JSON object.
   blob = bucket.get_blob(json_file)
@@ -338,7 +347,7 @@ def write_geotiff_predictions(file_list, kernel_buffer, bucket, json_file, featu
   affine = rio.Affine(transform[0], transform[1], transform[2], transform[3], transform[4], transform[5])
 
   # get our prediction data and make predictions one row at a time
-  data = makePredDataset(file_list = file_list, kernel_buffer, features, one_hot).unbatch().batch(ppr)
+  data = makePredDataset(file_list, kernel_shape, kernel_buffer, features, one_hot).unbatch().batch(ppr)
   iterator = iter(data)
   # initial row offset for affine window is 0
   row_offset = 0
@@ -348,7 +357,7 @@ def write_geotiff_predictions(file_list, kernel_buffer, bucket, json_file, featu
     # predict a row of patches
     predictions = m.predict(iterator.next(), batch_size = 1, steps = ppr)
     # trim the buffer from predictions
-    trimmed = [p[x_buffer:x_buffer + kernel, y_buffer: y_buffer + kernel, :] for p in predictions]
+    trimmed = [p[y_buffer: y_size, x_buffer:x_size, :] for p in predictions]
     patch = np.concatenate(trimmed, axis = 1)
 
     # for the first row we set our image equal to the row patch, define the height and return to top of loop
@@ -474,7 +483,7 @@ def get_img_bounds(img, bucket, jsonFile, dst_crs = None):
           print(out_bounds)
       return [[lat_min, lon_min], [lat_max, lon_max]]
 
-def doPrediction(bucket, pred_path, pred_image_base, features, one_hot, out_image_base, kernel_buffer):
+def doPrediction(bucket, pred_path, pred_image_base, features, one_hot, out_image_base, kernel_shape, kernel_buffer):
   """
   Given a bucket and path to prediction images, create a prediction dataset, make predictions
   and write tfrecords to GCS
@@ -556,7 +565,7 @@ def doPrediction(bucket, pred_path, pred_image_base, features, one_hot, out_imag
   patches = 0
   written_files = []
   while i < len(imageFilesList):
-    imageDataset = makePredDataset(file_list = imageFileList[i:i+100], kernel_buffer = kernel_buffer, features = features, one_hot = one_hot)
+    imageDataset = makePredDataset(file_list = imageFileList[i:i+100], kernel_shape = kernel_shape, kernel_buffer = kernel_buffer, features = features, one_hot = one_hot)
 #    imageDataset = tf.data.TFRecordDataset(imageFilesList[i:i+100], compression_type='GZIP')
 #    imageDataset = imageDataset.map(parse_image, num_parallel_calls=5)
 #    imageDataset = imageDataset.map(toTupleImage).batch(1)
