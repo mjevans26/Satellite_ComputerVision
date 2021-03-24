@@ -18,7 +18,7 @@ from rasterio.transform import array_bounds
      
 
 # TODO: automate spliting of full GEE path
-def doExport(image, features, scale, desc, bucket, filenameprefix, kernel_shape, kernel_buffer, region):
+def doExport(image, features, scale, desc, bucket, filenameprefix, region, kernel_shape = [256, 256], kernel_buffer = [128,128]):
   """
   Run an image export task on which to run predictions.  Block until complete.
   Parameters:
@@ -69,7 +69,7 @@ def doExport(image, features, scale, desc, bucket, filenameprefix, kernel_shape,
     
   
 #def makePredDataset(bucket, pred_path, pred_image_base, kernel_buffer, features, raw = None):
-def makePredDataset(file_list, kernel_shape = [256, 256], kernel_buffer = [128, 128], features, one_hot = None):
+def makePredDataset(file_list, features, kernel_shape = [256, 256], kernel_buffer = [128, 128], one_hot = None):
     """ Make a TFRecord Dataset that can be used for predictions
     Parameters:
         bucket (GCS bucket): google cloud storage bucket object
@@ -304,7 +304,7 @@ def write_tfrecord_predictions(imageDataset, pred_path, out_image_base, kernel_s
     writer.close()
 
 # TODO: re-calculate n and write files not strictly based on rows
-def write_geotiff_predictions(file_list, kernel_shape = [256, 256], kernel_buffer = [128,128], bucket, json_file, features, one_hot, export = True):
+def write_geotiff_predictions(file_list, bucket, json_file, features, one_hot, kernel_shape = [256, 256], kernel_buffer = [128,128], export = True):
   """Write a numpy array as a GeoTIFF to Google Cloud
   Parameters:
     pred_path (str): google cloud directory containg prediction files
