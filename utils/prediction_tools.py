@@ -18,24 +18,25 @@ from rasterio.transform import array_bounds
      
 
 # TODO: automate spliting of full GEE path
-def doExport(image, features, scale, bucket, filenameprefix, region, kernel_shape = [256, 256], kernel_buffer = [128,128]):
+def doExport(image, features, scale, bucket, pred_base, pred_path, region, kernel_shape = [256, 256], kernel_buffer = [128,128]):
   """
   Run an image export task on which to run predictions.  Block until complete.
   Parameters:
     image (ee.Image): image to be exported for prediction
     features (list): list of band names to include in export
     scale (int): pixel scale
-    path (str): google cloud directory path for export
-    out_image_base (str): base filename of exported image
+    bucket (str): name of GCS bucket to write files
+    pred_path (str): relative google cloud directory path for export
+    pred_base (str): base filename of exported image
     kernel_shape (array<int>): size of image patch in pixels
     kernel_buffer (array<int>): pixels to buffer the prediction patch. half added to each side
     region (ee.Geometry):
   """
   task = ee.batch.Export.image.toCloudStorage(
     image = image.select(features), 
-    description = filenameprefix, 
+    description = pred_base, 
     bucket = bucket, 
-    fileNamePrefix = filenameprefix,
+    fileNamePrefix = join(pred_path, pred_base),
     region = region,#.getInfo()['coordinates'], 
     scale = scale, 
     fileFormat = 'TFRecord', 
@@ -341,8 +342,9 @@ def write_geotiff_predictions(file_list, bucket, json_file, features, one_hot, k
   tp = mixer['totalPatches']
   rows = int(tp/ppr)
   
-  # set interval for writing predictions
-  n = 10
+  # set ~number of patches per written file
+  n = 1000
+  
   
   # define a rasterio affine transformation matrix based on the json mixer crs
   affine = rio.Affine(transform[0], transform[1], transform[2], transform[3], transform[4], transform[5])
