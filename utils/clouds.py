@@ -219,6 +219,6 @@ def maskTOA(img):
 #    water = waterScore(img).select('waterScore').lte(0.25)
 #    jrc = ee.Image(JRC.filterMetadata('year', 'equals', year).first())
 #    watermask = water.where(jrc.gte(2), 0)
-    shadowMask = img.select('B11').gt(900)
-    return scored.updateMask(cloudMask.And(shadowMask))#.And(watermask))
+#    shadowMask = img.select('B11').gt(900)
+    return scored.updateMask(cloudMask)#.And(shadowMask))#.And(watermask))
 
