@@ -130,9 +130,9 @@ def makePredDataset(file_list, features, kernel_shape = [256, 256], kernel_buffe
     def toTupleImage(dic):
       if one_hot:
           # reduce the list of features to those not being cast to one-hot
-          features = [i for i in features if i not in one_hot.keys()]
+          feats = [i for i in features if i not in one_hot.keys()]
           # gather these features into a list
-          normList = [dic.get(key) for key in features]
+          normList = [dic.get(key) for key in feats]
           normStack = tf.transpose(tf.stack(normList, axis = 0), [1 ,2, 0])
           normStack = normalize(normStack, [0, 1])
             
@@ -172,6 +172,7 @@ def make_array_predictions(imageDataset, bucket, jsonFile, kernel_shape = [256, 
     """
     # we need metadata from the json file to reconstruct prediction patches
     # Load the contents of the mixer file to a JSON object.
+    jsonFile = '/'.join(jsonFile.split(sep = '/')[3:])
     blob = bucket.get_blob(jsonFile) #23Mar21 update to use google-cloud-storage library
     jsonText = blob.download_as_string().decode('utf-8')
     mixer = json.loads(jsonText)
@@ -288,7 +289,7 @@ def write_tfrecord_predictions(imageDataset, pred_path, out_image_base, kernel_s
       # Create an example.
       example = tf.train.Example(
         features=tf.train.Features(
-                feature
+                feature = feature
 #          feature={
 #            'class': tf.train.Feature(
 #                int64_list=tf.train.Int64List(
@@ -343,14 +344,13 @@ def write_geotiff_predictions(file_list, bucket, json_file, features, one_hot, k
   rows = int(tp/ppr)
   
   # set ~number of patches per written file
-  n = 1000
-  
+  n = 500
   
   # define a rasterio affine transformation matrix based on the json mixer crs
   affine = rio.Affine(transform[0], transform[1], transform[2], transform[3], transform[4], transform[5])
 
-  # get our prediction data and make predictions one row at a time
-  data = makePredDataset(file_list, kernel_shape, kernel_buffer, features, one_hot).unbatch().batch(ppr)
+  # get our prediction data and make predictions one chunk at a time
+  data = makePredDataset(file_list, kernel_shape, kernel_buffer, features, one_hot).unbatch().batch(n)
   iterator = iter(data)
   # initial row offset for affine window is 0
   row_offset = 0
@@ -358,7 +358,7 @@ def write_geotiff_predictions(file_list, bucket, json_file, features, one_hot, k
   counter = 0
   for row in range(rows):
     # predict a row of patches
-    predictions = m.predict(iterator.next(), batch_size = 1, steps = ppr)
+    predictions = m.predict(iterator.next(), batch_size = 1, steps = n)
     # trim the buffer from predictions
     trimmed = [p[y_buffer: y_size, x_buffer:x_size, :] for p in predictions]
     patch = np.concatenate(trimmed, axis = 1)
@@ -451,7 +451,7 @@ def get_img_bounds(img, bucket, jsonFile, dst_crs = None):
       Return:
       tpl: [[lat min, lon min],[lat max, lon max]]
       """
-
+      jsonFile = '/'.join(jsonFile.split(sep = '/')[3:])
       blob = bucket.get_blob(jsonFile)
       jsonFile = blob.download_as_text()
       jsonText = jsonFile.decode('utf-8')
