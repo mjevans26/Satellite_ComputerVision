@@ -11,7 +11,7 @@ import numpy as np
 import tensorflow as tf
 #import gsutil
 import rasterio as rio
-
+from processing import normalize
 from rasterio.crs import CRS
 from rasterio.warp import transform_bounds
 from rasterio.transform import array_bounds 
@@ -147,7 +147,7 @@ def makePredDataset(file_list, features, kernel_shape = [256, 256], kernel_buffe
   
   # Create a dataset(s) from the TFRecord file(s) in Cloud Storage.
     
-    imageDataset = tf.data.TFRecordDataset(imageFilesList, compression_type='GZIP')
+    imageDataset = tf.data.TFRecordDataset(file_list, compression_type='GZIP')
     imageDataset = imageDataset.map(parse_image, num_parallel_calls=5)
     imageDataset = imageDataset.map(toTupleImage).batch(1)
     return imageDataset
