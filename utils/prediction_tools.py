@@ -152,7 +152,7 @@ def makePredDataset(file_list, features, kernel_shape = [256, 256], kernel_buffe
     imageDataset = imageDataset.map(toTupleImage).batch(1)
     return imageDataset
 
-def make_array_predictions(imageDataset, jsonFile, kernel_shape = [256, 256], kernel_buffer = [128,128]):
+def make_array_predictions(imageDataset, bucket, jsonFile, kernel_shape = [256, 256], kernel_buffer = [128,128]):
     """Create a 3D array of prediction outputs from TFRecord dataset
     
     Given a set of TFRecords representing image patches on which to run model predictions,
@@ -162,6 +162,7 @@ def make_array_predictions(imageDataset, jsonFile, kernel_shape = [256, 256], ke
     
     Parameters:
         imageDataset (tf.Dataset): image patch tensors on which to run predictions
+        bucket (gcs bucket): google-cloud-storage Bucket object
         jsonFile (str): complete GCS filepath to json file
         kernel_size(tpl): size of image patch in pixels
         kernel_buffer (tpl): pixels to trim from H, W, dimensions of each output patch
