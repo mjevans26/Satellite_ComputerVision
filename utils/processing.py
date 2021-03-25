@@ -88,7 +88,7 @@ def normalize(x, axes=[0, 1, 2], epsilon=1e-8, moments = None, splits = None):
     
     # define a basic function to normalize a 3d tensor
     def normalize_tensor(x):
-        shape = tf.shape(x).numpy()
+#        shape = tf.shape(x).numpy()
         # if we've defined global or per-channel moments...
         if moments:
             # cast moments to arrays for mean and variance
@@ -96,13 +96,9 @@ def normalize(x, axes=[0, 1, 2], epsilon=1e-8, moments = None, splits = None):
             variance = np.array([tpl[1] for tpl in moments], dtype = 'float32')
         # otherwise, calculate moments along provided axes
         else:
-            mean, variance = tf.nn.moments(x, axes)
-            # to ensure compatibility with input tensor
-            for axis in axes:
-              # set shape of moment tensors to 1 for each reduced axis
-              shape[axis] = 1
-            mean = tf.reshape(mean, shape)
-            variance = tf.reshape(variance, shape)
+            mean, variance = tf.nn.moments(x, axes, keepdims = True)
+            # keepdims = True to ensure compatibility with input tensor
+
         # normalize the input tensor
         normed = (x - mean)/tf.sqrt(variance + epsilon)
         return normed
@@ -115,28 +111,52 @@ def normalize(x, axes=[0, 1, 2], epsilon=1e-8, moments = None, splits = None):
         # gather normalized splits into single tensor
         x_normed = tf.concat(normed, axis = 2)
     else:
-        x_normed = tensor_moments(x)
+        x_normed = normalize_tensor(x)
 
     return x_normed 
 
-def rescale(img, axes = [2]):
+def rescale(img, axes = [2], epsilon=1e-8, moments = None, splits = None):
     """
-    Standardize incoming image patch to [0,1] based on min and max values
+    Rescale incoming image patch to [0,1] based on min and max values
     
-    To standardize each pixel use axes = [2]
-    To standardize each channel use axes = [0, 1]
-    To standardize globally use axes = [0, 1, 2]
+    Min, max can be calculated based on patch data by providing axes:      
+    To rescale each pixel use axes = [2]
+    To rescale each channel use axes = [0, 1]
+    To rescale globally use axes = [0, 1, 2]
+
+    To rescale by global, or per-channel moments supply a list of [mean, variance] tuples.
+    To rescale groups of channels separately, identify the size of each group. Groups of
+    channels must be stacked contiguously and group sizes must sum to the total # of channels
     
     Args:
         img (tensor): 3D (H,W,C) image tensor
         axes (list): axes along which to calculate min/max for rescaling
+        moments (list<tpl>): list of [min, max] tuples for standardization
+        splits (list): size(s) of groups of features to be kept together
     Return:
         tensor: 3D tensor of same shape as input, with values [0,1]
     """
-    minimum = tf.math.reduce_min(img, axis = axes, keepdims = True)
-    maximum = tf.math.reduce_max(img, axis = axes, keepdims = True)
-    scaled = tf.divide(tf.subtract(img, minimum), tf.subtract(maximum, minimum))
-    return scaled
+    def rescale_tensor(img):
+        if moments:
+            minimum = np.array([tpl[0] for tpl in moments], dtype = 'float32')
+            maximum = np.array([tpl[1] for tpl in moments], dtype = 'float32')
+        else:
+            minimum = tf.math.reduce_min(img, axis = axes, keepdims = True)
+            maximum = tf.math.reduce_max(img, axis = axes, keepdims = True)
+        scaled = (img - minimum)/((maximum - minimum) + epsilon)
+#        scaled = tf.divide(tf.subtract(img, minimum), tf.add(tf.subtract(maximum, minimum))
+        return scaled
+    
+    # if splits are given, apply tensor normalization to each split
+    if splits:
+        tensors = tf.split(img, splits, axis = 2)
+        rescaled = [rescale_tensor(tensor) for tensor in tensors]
+        # gather normalized splits into single tensor
+        img_rescaled = tf.concat(rescaled, axis = 2)
+    else:
+        img_rescaled = rescale_tensor(img)
+        
+    return img_rescaled
 
 #def parse_tfrecord(example_proto, ftDict):
 #    """The parsing function.
