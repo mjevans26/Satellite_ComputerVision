@@ -63,42 +63,61 @@ def augImg(img):
       #since were gonna map_fn this on a 4d image, output must be 3d, so squeeze the artificial 'sample' dimension
     return tf.squeeze(x)
 
-def normalize(x, axes=[0, 1, 2], epsilon=1e-8, moments = None):
-  """
-  Standardize incoming image patches by mean and variance
-  
-  To standardize each pixel use axes = [2]
-  To standardize each channel use axes = [0, 1]
-  To standardize globally use axes = [0, 1, 2]
+def normalize(x, axes=[0, 1, 2], epsilon=1e-8, moments = None, splits = None):
+    """
+    Standardize incoming image patches by mean and variance.
+
+    Moments can be calculated based on patch data by providing axes:      
+    To standardize each pixel use axes = [2]
+    To standardize each channel use axes = [0, 1]
+    To standardize globally use axes = [0, 1, 2]
+
+    To standardize by global, or per-channel moments supply a list of [mean, variance] tuples.
+    To standardize groups of channels separately, identify the size of each group. Groups of
+    channels must be stacked contiguously and group sizes must sum to the total # of channels
     
-  Parameters:
-    x (tensor): nD image tensor
-    axes (array): Array of ints. Axes along which to compute mean and variance, usually length n-1
-    epsilon (float): small number to avoid dividing by zero
-    moments (tpl): global mean and variance for standardization
-  Return:
-    tensor: nD image tensor normalized by channels
-  """
-#  def tensor_moments:
-#      mean, variance = tf.nn.moments(x, axes)
-#      normed = (x - mean)/tf.sqrt(variance + epsilon)
-#      
-#  H,W,C = tf.shape(x)
-#  if splits:
-#      tensors = tf.split(x, splits, axis = 2)
-#      [tensor_moments(tensor) for tensor in tensors]
-#
-#  if moments:
-#      mean = np.array([tpl[0] for tpl in moments])
-#      variance = np.array([tpl[1] for tpl in moments])
-#  else:
-#      mean, variance = tf.nn.moments(x, axes=axes)
-#      
-#  if split:
-#      x_normed = (x[:, :, split] - mean[:split])/tf.sqrt(variance[:split] + epsilon)
-  mean, variance = tf.nn.moments(x, axes)  
-  x_normed = (x - mean) / tf.sqrt(variance + epsilon) # epsilon to avoid dividing by zero
-  return x_normed
+    Parameters:
+        x (tensor): nD image tensor
+        axes (array): Array of ints. Axes along which to compute mean and variance, usually length n-1
+        epsilon (float): small number to avoid dividing by zero
+        moments (list<tpl>): list of global mean, variance tuples for standardization
+        splits (list): size(s) of groups of features to be kept together
+    Return:
+        tensor: nD image tensor normalized by channels
+    """
+    
+    # define a basic function to normalize a 3d tensor
+    def normalize_tensor(x):
+        shape = tf.shape(x).numpy()
+        # if we've defined global or per-channel moments...
+        if moments:
+            # cast moments to arrays for mean and variance
+            mean = np.array([tpl[0] for tpl in moments], dtype = 'float32')
+            variance = np.array([tpl[1] for tpl in moments], dtype = 'float32')
+        # otherwise, calculate moments along provided axes
+        else:
+            mean, variance = tf.nn.moments(x, axes)
+            # to ensure compatibility with input tensor
+            for axis in axes:
+              # set shape of moment tensors to 1 for each reduced axis
+              shape[axis] = 1
+            mean = tf.reshape(mean, shape)
+            variance = tf.reshape(variance, shape)
+        # normalize the input tensor
+        normed = (x - mean)/tf.sqrt(variance + epsilon)
+        return normed
+    
+
+    # if splits are given, apply tensor normalization to each split
+    if splits:
+        tensors = tf.split(x, splits, axis = 2)
+        normed = [normalize_tensor(tensor) for tensor in tensors]
+        # gather normalized splits into single tensor
+        x_normed = tf.concat(normed, axis = 2)
+    else:
+        x_normed = tensor_moments(x)
+
+    return x_normed 
 
 def rescale(img, axes = [2]):
     """

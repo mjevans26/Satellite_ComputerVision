@@ -11,7 +11,7 @@ import numpy as np
 import tensorflow as tf
 #import gsutil
 import rasterio as rio
-from processing import normalize
+from utils.processing import normalize
 from rasterio.crs import CRS
 from rasterio.warp import transform_bounds
 from rasterio.transform import array_bounds 
