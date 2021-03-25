@@ -18,7 +18,7 @@ from rasterio.transform import array_bounds
      
 
 # TODO: automate spliting of full GEE path
-def doExport(image, features, scale, desc, bucket, filenameprefix, region, kernel_shape = [256, 256], kernel_buffer = [128,128]):
+def doExport(image, features, scale, bucket, filenameprefix, region, kernel_shape = [256, 256], kernel_buffer = [128,128]):
   """
   Run an image export task on which to run predictions.  Block until complete.
   Parameters:
@@ -33,7 +33,7 @@ def doExport(image, features, scale, desc, bucket, filenameprefix, region, kerne
   """
   task = ee.batch.Export.image.toCloudStorage(
     image = image.select(features), 
-    description = desc, 
+    description = filenameprefix, 
     bucket = bucket, 
     fileNamePrefix = filenameprefix,
     region = region,#.getInfo()['coordinates'], 

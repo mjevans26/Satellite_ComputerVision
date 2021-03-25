@@ -5,6 +5,7 @@ Created on Fri Mar 20 10:50:44 2020
 @author: MEvans
 """
 import tensorflow as tf
+import numpy as np
 
 def aug_color(img):
     n_ch = tf.shape(img)[-1]
@@ -62,7 +63,7 @@ def augImg(img):
       #since were gonna map_fn this on a 4d image, output must be 3d, so squeeze the artificial 'sample' dimension
     return tf.squeeze(x)
 
-def normalize(x, axes=[0, 1, 2], epsilon=1e-8):
+def normalize(x, axes=[0, 1, 2], epsilon=1e-8, moments = None):
   """
   Standardize incoming image patches by mean and variance
   
@@ -74,10 +75,28 @@ def normalize(x, axes=[0, 1, 2], epsilon=1e-8):
     x (tensor): nD image tensor
     axes (array): Array of ints. Axes along which to compute mean and variance, usually length n-1
     epsilon (float): small number to avoid dividing by zero
+    moments (tpl): global mean and variance for standardization
   Return:
     tensor: nD image tensor normalized by channels
   """
-  mean, variance = tf.nn.moments(x, axes=axes)
+#  def tensor_moments:
+#      mean, variance = tf.nn.moments(x, axes)
+#      normed = (x - mean)/tf.sqrt(variance + epsilon)
+#      
+#  H,W,C = tf.shape(x)
+#  if splits:
+#      tensors = tf.split(x, splits, axis = 2)
+#      [tensor_moments(tensor) for tensor in tensors]
+#
+#  if moments:
+#      mean = np.array([tpl[0] for tpl in moments])
+#      variance = np.array([tpl[1] for tpl in moments])
+#  else:
+#      mean, variance = tf.nn.moments(x, axes=axes)
+#      
+#  if split:
+#      x_normed = (x[:, :, split] - mean[:split])/tf.sqrt(variance[:split] + epsilon)
+  mean, variance = tf.nn.moments(x, axes)  
   x_normed = (x - mean) / tf.sqrt(variance + epsilon) # epsilon to avoid dividing by zero
   return x_normed
 
