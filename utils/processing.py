@@ -47,7 +47,7 @@ def augColor(x):
     x = tf.image.random_contrast(x, 0.7, 1.3)
     return x
   
-def augImg(img):
+def aug_img(img):
     """
     Perform image augmentation on tfRecords
     Parameters:
