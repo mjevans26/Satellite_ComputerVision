@@ -234,7 +234,7 @@ def get_dataset(files, ftDict):
   return dataset
 
 def get_training_dataset(files, ftDict, buff, batch, repeat = True):
-	"""
+    """
     Get the preprocessed training dataset
     Args:
         files (list): list of tfrecord files to be used for training
@@ -243,13 +243,13 @@ def get_training_dataset(files, ftDict, buff, batch, repeat = True):
     Returns: 
       A tf.data.Dataset of training data.
     """
-	dataset = get_dataset(files, ftDict)
+    dataset = get_dataset(files, ftDict)
     if repeat:
         dataset = dataset.shuffle(buff).batch(batch).repeat()
     else:
         dataset = dataset.shuffle(buff).batch(batch)
-	return dataset
-
+    return dataset
+    
 def get_eval_dataset(files, ftDict):
 	"""
     Get the preprocessed evaluation dataset
