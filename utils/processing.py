@@ -14,9 +14,10 @@ def calc_ndvi(input):
   Returns:
     tensor
   """
+  epsilon = 1e-8
   nir = input.get('B8')
   red = input.get('B4')
-  ndvi = tf.divide(tf.subtract(nir, red), tf.add(nir,red))
+  ndvi = tf.divide(tf.subtract(nir, red), tf.add(epsilon, tf.add(nir,red)))
   return ndvi
 
 def aug_color(img):
@@ -196,7 +197,7 @@ def to_tuple(inputs, features, response):
     stacked = tf.stack(inputsList, axis=0)
     # Convert from CHW to HWC
     stacked = tf.transpose(stacked, [1, 2, 0])
-    stacked = augImg(stacked)
+    stacked = aug_img(stacked)
     #split input bands and labels
     bands = stacked[:,:,:len(features)]
     labels = stacked[:,:,len(features):]
