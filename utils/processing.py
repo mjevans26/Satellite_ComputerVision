@@ -7,6 +7,18 @@ Created on Fri Mar 20 10:50:44 2020
 import tensorflow as tf
 import numpy as np
 
+def calc_ndvi(input):
+  """Caclulate NDVI from Sentinel-2 data
+  Parameters:
+    input (dict): dictionary of incoming tensors
+  Returns:
+    tensor
+  """
+  nir = input.get('B8')
+  red = input.get('B4')
+  ndvi = tf.divide(tf.subtract(nir, red), tf.add(nir,red))
+  return ndvi
+
 def aug_color(img):
     n_ch = tf.shape(img)[-1]
     contra_adj = 0.05
@@ -221,7 +233,7 @@ def get_dataset(files, ftDict):
   dataset = dataset.map(tupelize, num_parallel_calls=5)
   return dataset
 
-def get_training_dataset(files, ftDict, buff, batch):
+def get_training_dataset(files, ftDict, buff, batch, repeat = True):
 	"""
     Get the preprocessed training dataset
     Args:
@@ -232,7 +244,10 @@ def get_training_dataset(files, ftDict, buff, batch):
       A tf.data.Dataset of training data.
     """
 	dataset = get_dataset(files, ftDict)
-	dataset = dataset.shuffle(buff).batch(batch).repeat()
+    if repeat:
+        dataset = dataset.shuffle(buff).batch(batch).repeat()
+    else:
+        dataset = dataset.shuffle(buff).batch(batch)
 	return dataset
 
 def get_eval_dataset(files, ftDict):
