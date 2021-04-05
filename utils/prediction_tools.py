@@ -118,7 +118,7 @@ def makePredDataset(file_list, features, kernel_shape = [256, 256], kernel_buffe
           # gather these features into a list
           normList = [dic.get(key) for key in feats]
           normStack = tf.transpose(tf.stack(normList, axis = 0), [1 ,2, 0])
-          normStack = normalize(normStack, [0, 1])
+          normStack = normalize(normStack, axes = [2])
             
           # cast one-hot features to their corresponding depth and organize into a list
           oneHotList = [tf.one_hot(tf.cast(dic.get(key), tf.uint8), val, axis = 2) for key, val in one_hot.items()]
@@ -127,7 +127,7 @@ def makePredDataset(file_list, features, kernel_shape = [256, 256], kernel_buffe
       else:
           featList = [dic.get(key) for key in features]
           stacked = tf.transpose(tf.stack(featList + derList, axis = 0), [1,2,0])
-          stacked = normalize(stacked, [0,1])
+          stacked = normalize(stacked, axes = [2])
       return stacked
   
   # Create a dataset(s) from the TFRecord file(s) in Cloud Storage.
