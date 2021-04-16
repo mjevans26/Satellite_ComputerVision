@@ -137,6 +137,71 @@ def makePredDataset(file_list, features, kernel_shape = [256, 256], kernel_buffe
     imageDataset = imageDataset.map(toTupleImage).batch(1)
     return imageDataset
 
+def plot_to_image(figure):
+    """Converts the matplotlib plot specified by 'figure' to a PNG image and
+    returns it. The supplied figure is closed and inaccessible after this call."""
+    # Save the plot to a PNG in memory.
+    import io
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png')
+    # Closing the figure prevents it from being displayed directly inside
+    # the notebook.
+    plt.close(figure)
+    buf.seek(0)
+    # Convert PNG buffer to TF image
+    image = tf.image.decode_png(buf.getvalue(), channels=4)
+    # Add the batch dimension
+    image = tf.expand_dims(image, 0)
+    return image
+
+def callback_predictions(imageDataset, model, mixer, kernel_shape = [256, 256], kernel_buffer = [128, 128]):
+    patches = mixer['totalPatches']
+    cols = mixer['patchesPerRow']
+    rows = patches//cols
+
+    # Perform inference.
+    predictions = model.predict(imageDataset, steps=patches, verbose=1)
+    
+    # some models will outputs probs and classes as a list
+    if type(predictions) == list:
+        # in this case, concatenate list elments into a single 4d array along last dimension
+        predictions = np.concatenate(predictions, axis = 3)
+        
+    x_buffer = int(kernel_buffer[0] / 2)
+    y_buffer = int(kernel_buffer[1] / 2)
+    x_size = kernel_shape[0]+y_buffer
+    y_size = kernel_shape[1]+x_buffer
+
+    x = 1
+    for prediction in predictions:
+      print('Writing patch ' + str(x) + '...')
+      # lets just write probabilities, classes can be calculated post processing if not present already
+      patch = prediction[y_buffer:y_size, x_buffer:x_size, :]
+#      predPatch = np.add(np.argmax(prediction, axis = 2), 1)
+#      probPatch = np.max(prediction, axis = 2)
+#      predPatch = predPatch[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE]
+#      probPatch = probPatch[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE]
+#      # stack probabilities and classes along channel dimension
+#      patch = np.stack([predPatch, probPatch], axis = 2)
+
+      ## NOTE: Predictions come out with y as 0 dimension (ie. rows), x as 1 dimension (ie. columns)
+      # if we're at the beginning of a row
+      if x%cols == 1:
+        row = patch
+      else:
+        row = np.append(row, patch, axis = 1)
+      # if we reached the end of a row start a new one
+      if x%cols == 0:
+        # for the first row, create single row rows object
+        if x <= cols:
+          rows = row
+        else:
+        # add current row to previous rows along y axis
+          rows = np.append(rows, row, axis = 0)
+      x += 1
+
+    return rows  
+
 def make_array_predictions(imageDataset, model, bucket, jsonFile, kernel_shape = [256, 256], kernel_buffer = [128,128]):
     """Create a 3D array of prediction outputs from TFRecord dataset
     

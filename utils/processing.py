@@ -181,8 +181,8 @@ def rescale(img, axes = [2], epsilon=1e-8, moments = None, splits = None):
 #    """
 #    return tf.io.parse_single_example(example_proto, ftDict)
 
-
-def to_tuple(inputs, features, response):
+          
+def to_tuple(inputs, features, response, axes = [2], **kwargs):
     """Function to convert a dictionary of tensors to a tuple of (inputs, outputs).
     Turn the tensors returned by parse_tfrecord into a stack in HWC shape.
     Args:
@@ -190,68 +190,108 @@ def to_tuple(inputs, features, response):
       variable must be the last item.
       features (list): List of input feature names
       respones (str): response name(s)
+      axes (list): axes along which to calculate moments for rescaling
+      one_hot (dict): key:value pairs for name of one-hot variable and desired one-hot depth
+      splits (list): size(s) of groups of features to be kept together
+      moments (list<tpl>): list of [mean, var] tuples for standardization
     Returns: 
       A dtuple of (inputs, outputs).
     """
-    inputsList = [inputs.get(key) for key in features + [response]]
-    stacked = tf.stack(inputsList, axis=0)
-    # Convert from CHW to HWC
-    stacked = tf.transpose(stacked, [1, 2, 0])
-    stacked = aug_img(stacked)
-    #split input bands and labels
-    bands = stacked[:,:,:len(features)]
-    labels = stacked[:,:,len(features):]
-    # in case labels are >1
-    labels = tf.where(tf.greater(labels, 1.0), 1.0, labels)
-    # perform color augmentation on input features
-    bands = aug_color(bands)
-    # standardize each patch of bands
-    bands = normalize(bands, [0,1])
-    # return the features and labels
-    return bands, labels
+    one_hot = kwargs.get('one_hot')
+    splits = kwargs.get('splits')
+    moments = kwargs.get('moments')
+#    inputsList = [inputs.get(key) for key in features + [response]]
+    
+    res = tf.expand_dims(inputs.get(response), axis = 2)
+    
+    # stack the augmented bands, optional one-hot tensors, and response variable
+    if one_hot:
+        featList = [inputs.get(key) for key in features if key not in one_hot.keys()]
+        hotList = [tf.one_hot(tf.cast(inputs.get(key), tf.uint8), val, axis = 2) for key, val in one_hot.items()]
+    else:
+        featList = [inputs.get(key) for key in features]
+        hotList = []
 
-def get_dataset(files, ftDict):
+    # stack, transpose, augment, and normalize continuous bands
+    bands = tf.transpose(tf.stack(featList, axis = 0), [1,2,0])
+    bands = aug_color(bands)
+    bands = normalize(bands, axes = axes, moments = moments, splits = splits)
+    
+    if one_hot:
+      stacked = tf.concat([bands, hotList, res], axis =2)
+    else:
+      stacked = tf.concat([bands, res], axis = 2)
+    
+    # perform morphological augmentation
+    stacked = aug_img(stacked)
+    
+    feats = stacked[:, :, :-1]
+    labels = stacked[:, :, -1:]
+    
+    return feats, labels
+#    stacked = tf.stack(inputsList, axis=0)
+#    # Convert from CHW to HWC
+#    stacked = tf.transpose(stacked, [1, 2, 0])
+#    stacked = aug_img(stacked)
+#    #split input bands and labels
+#    bands = stacked[:,:,:len(features)]
+#    labels = stacked[:,:,len(features):]
+#    # in case labels are >1
+#    labels = tf.where(tf.greater(labels, 1.0), 1.0, labels)
+#    # perform color augmentation on input features
+#    bands = aug_color(bands)
+#    # standardize each patch of bands
+#    bands = normalize(bands, axes)
+#    # return the features and labels
+#    return bands, labels
+
+def get_dataset(files, ftDict, features, response, axes = [2], **kwargs):
   """Function to read, parse and format to tuple a set of input tfrecord files.
   Get all the files matching the pattern, parse and convert to tuple.
   Args:
     files (list): A list of filenames storing tfrecords
     FtDict (dic): Dictionary of input features in tfrecords
+    features (list): List of input feature names
+    respones (str): response name(s)
+    axes (list): axes along which to calculate moments for rescaling
   Returns: 
     A tf.data.Dataset
   """
-  keys = list(ftDict.keys())
-  features = keys[:-1]
-  response = keys[-1]
-  
+
   def parse_tfrecord(example_proto):
       return tf.io.parse_single_example(example_proto, ftDict)
   
-  def tupelize(inputs):
-      return to_tuple(inputs, features, response)
+  def tupelize(ftDict):
+      return to_tuple(ftDict, features, response, axes, **kwargs)
   
   dataset = tf.data.TFRecordDataset(files, compression_type='GZIP')
   dataset = dataset.map(parse_tfrecord, num_parallel_calls=5)
   dataset = dataset.map(tupelize, num_parallel_calls=5)
   return dataset
 
-def get_training_dataset(files, ftDict, buff, batch, repeat = True):
+def get_training_dataset(files, ftDict, features, response, buff, batch = 16, repeat = True, axes = [2], **kwargs):
     """
     Get the preprocessed training dataset
     Args:
         files (list): list of tfrecord files to be used for training
+        FtDict (dic): Dictionary of input features in tfrecords
+        features (list): List of input feature names
+        respones (str): response name(s)
+        axes (list): axes along which to calculate moments for rescaling
         buffer (int): buffer size for shuffle
         batch (int): batch size for training
+        repeat (bool): should the dataset be repeated
     Returns: 
       A tf.data.Dataset of training data.
     """
-    dataset = get_dataset(files, ftDict)
+    dataset = get_dataset(files, ftDict, features, response, axes, **kwargs)
     if repeat:
         dataset = dataset.shuffle(buff).batch(batch).repeat()
     else:
         dataset = dataset.shuffle(buff).batch(batch)
     return dataset
     
-def get_eval_dataset(files, ftDict):
+def get_eval_dataset(files, ftDict, features, response, axes = [2], **kwargs):
 	"""
     Get the preprocessed evaluation dataset
     Args:
@@ -259,6 +299,18 @@ def get_eval_dataset(files, ftDict):
     Returns: 
       A tf.data.Dataset of evaluation data.
     """
-	dataset = get_dataset(files, ftDict)
+
+	dataset = get_dataset(files, ftDict, features, response, axes, **kwargs)
 	dataset = dataset.batch(1)
 	return dataset
+
+#def tup(param = 0, extra = 10):
+#    return param + extra
+#
+#def get_data(x, **kwargs):
+#    return tup(**kwargs) + x^2
+#
+#def get_train_data(x, y, **kwargs):
+#    return get_data(x, **kwargs) - y
+#    
+#get_train_data(2, 3, param = 1, extra = 3)
