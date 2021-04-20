@@ -5,7 +5,7 @@ Created on Sat Jan  2 12:41:40 2021
 @author: MEvans
 """
 
-from utils import model, processing
+from utils import model_tools, processing
 from utils.prediction_tools import makePredDataset, callback_predictions, plot_to_image
 from matplotlib import pyplot as plt
 import argparse
@@ -14,6 +14,7 @@ import glob
 import json
 import math
 import tensorflow as tf
+import numpy as np
 from datetime import datetime
 from azureml.core import Run
 
@@ -23,21 +24,23 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--train_data', type = list, required = True, help = 'Training datasets')
 parser.add_argument('--eval_data', type = list, required = True, help = 'Evaluation datasets')
 parser.add_argument('--test_data', type = str, default = None, help = 'directory containing test image(s) and mixer')
-parser.add_argument('-lr', '--learning_rate', type = float, default = 0.0001, help = 'Initial learning rate')
+parser.add_argument('-lr', '--learning_rate', type = float, default = 0.001, help = 'Initial learning rate')
 parser.add_argument('-w', '--weight', type = float, default = 1.0, help = 'Positive sample weight for iou, bce, etc.')
+parser.add_argument('--bias', type = float, default = None, help = 'bias value for keras output layer initializer')
 parser.add_argument('-e', '--epochs', type = int, default = 10, help = 'Number of epochs to train the model for')
 parser.add_argument('-b', '--batch', type = int, default = 16, help = 'Training batch size')
 parser.add_argument('--size', type = int, default = 3000, help = 'Size of training dataset')
 parser.add_argument('--kernel-size', type = int, default = 256, dest = 'kernel_size', help = 'Size in pixels of incoming patches')
 parser.add_argument('--response', type = str, required = True, help = 'Name of the response variable in tfrecords')
+parser.add_argument('--bands', type = list, required = True, default = ['B2', 'B3', 'B4', 'B8', 'B2_1', 'B3_1', 'B4_1', 'B8_1'])
+parser.add_argument('--splits', type = list, default = None )
 args = parser.parse_args()
 
 LR = args.learning_rate
-WEIGHT = args.weight
-BANDS = ['B2', 'B3', 'B4', 'B8', 'B2_1', 'B3_1', 'B4_1', 'B8_1']
+BANDS = args.bands
 RESPONSE = args.response
 OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
-LOSS = model.weighted_bce(WEIGHT)
+
 METRICS = [tf.keras.metrics.categorical_accuracy, tf.keras.metrics.MeanIoU(num_classes=2, name = 'mean_iou')]
 
 FEATURES = BANDS + [RESPONSE]
@@ -73,22 +76,38 @@ for path in args.eval_data:
 
 print(len(train_files))
 
-training = processing.get_training_dataset(train_files, ftDict = FEATURES_DICT, buff = BUFFER, batch = args.batch)
-evaluation = processing.get_eval_dataset(eval_files, ftDict = FEATURES_DICT)
+training = processing.get_training_dataset(
+        files = train_files,
+        ftDict = FEATURES_DICT,
+        features = BANDS,
+        response = RESPONSE,
+        buff = BUFFER,
+        batch = args.batch,
+        splits = args.splits,
+        repeat = True)
 
+evaluation = processing.get_eval_dataset(
+        files = eval_files,
+        ftDict = FEATURES_DICT,
+        features = BANDS,
+        response = RESPONSE,
+        splits = args.splits)
+
+def get_weighted_bce(y_true, y_pred):
+    return model_tools.weighted_bce(y_true, y_pred, args.weight)
 
 # get the run context
 run = Run.get_context()
 
 # build the model
-m = model.get_model(depth = len(BANDS), optim = OPTIMIZER, loss = LOSS, mets = METRICS)
+m = model_tools.get_model(depth = len(BANDS), optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS, bias = args.bias)
 
 # compile the model with our loss fxn, metrics, and optimizer
-m.compile(
-        optimizer = OPTIMIZER,
-        loss = LOSS,
-        metrics = METRICS
-        )
+#m.compile(
+#        optimizer = OPTIMIZER,
+#        loss = LOSS,
+#        metrics = METRICS
+#        )
 
 
 # get the current time

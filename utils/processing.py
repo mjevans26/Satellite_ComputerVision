@@ -227,7 +227,7 @@ def to_tuple(inputs, features, response, axes = [2], **kwargs):
     
     feats = stacked[:, :, :-1]
     labels = stacked[:, :, -1:]
-    
+    labels = tf.where(tf.greater(labels, 1.0), 1.0, labels)
     return feats, labels
 #    stacked = tf.stack(inputsList, axis=0)
 #    # Convert from CHW to HWC

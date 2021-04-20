@@ -11,23 +11,20 @@ from tensorflow.python.keras import losses
 from tensorflow.python.keras import models
 from tensorflow.python.keras import metrics
 from tensorflow.python.keras import optimizers
+import numpy as np
 
-def weighted_bce(weight = 0.8):
+def weighted_bce(y_true, y_pred, weight):
     """
     Compute the weighted binary cross entropy between predictions and observations
     Parameters:
-        y_true (): nD tensor of labels
-        y_pred (): nD tensor of probabilities
-        weight (float): weighting factor for positive predictions. weight < 1 = reduce false positives
+        y_true (): 2D tensor of labels
+        y_pred (): 2D tensor of probabilities
         
     Returns:
-        nD tensor of same shape as y_pred
+        2D tensor
     """
-    def bce_loss(y_true, y_pred):
-        bce = tf.nn.weighted_cross_entropy_with_logits(labels = y_true, logits = y_pred, pos_weight = weight)
-        return tf.reduce_mean(bce)
-    
-    return bce_loss
+    bce = tf.nn.weighted_cross_entropy_with_logits(labels = y_true, logits = y_pred, pos_weight = weight)
+    return tf.reduce_mean(bce)
 
 def dice_coef(y_true, y_pred, smooth=1, weight=0.5):
     """
@@ -84,7 +81,7 @@ def decoder_block(input_tensor, concat_tensor, num_filters):
 	decoder = layers.Activation('relu')(decoder)
 	return decoder
 
-def get_model(depth, optim, loss, mets):
+def get_model(depth, optim, loss, mets, bias = None):
     """
     Build a U-Net model
     Parameters:
@@ -95,6 +92,9 @@ def get_model(depth, optim, loss, mets):
     Returns:
         tf.keras.model: compiled U-Net model
     """
+    if bias is not None:
+        bias = tf.keras.initializers.Constant(bias)
+        
     inputs = layers.Input(shape=[None, None, depth]) # 256
     encoder0_pool, encoder0 = encoder_block(inputs, 32) # 128
     encoder1_pool, encoder1 = encoder_block(encoder0_pool, 64) # 64
@@ -107,7 +107,7 @@ def get_model(depth, optim, loss, mets):
     decoder2 = decoder_block(decoder3, encoder2, 128) # 64
     decoder1 = decoder_block(decoder2, encoder1, 64) # 128
     decoder0 = decoder_block(decoder1, encoder0, 32) # 256
-    outputs = layers.Conv2D(1, (1, 1), activation='sigmoid')(decoder0)
+    outputs = layers.Conv2D(1, (1, 1), activation='sigmoid', bias_initializer = bias)(decoder0)
 
     model = models.Model(inputs=[inputs], outputs=[outputs])
 
@@ -118,3 +118,62 @@ def get_model(depth, optim, loss, mets):
             metrics=[metrics.get(metric) for metric in mets])
 
     return model
+
+def make_confusion_matrix_data(tpl, model, multiclass = False):
+  """Create data needed to construct a confusion matrix on model predictions
+  Functions takes a tfrecord dataset consisting of input features and lables
+  and returns label and prediction vectors
+
+  Parameters:
+    dataset (tpl): features, labels tuple from tfDataset
+    model (keras Model): model used to make predictions
+    multiclass (bool): are labels multiclass or binary?
+
+  Returns:
+    tuple: 1D label and prediction arrays from the input datset
+  """
+  preds = model.predict(tpl[0], verbose = 1)
+  labs = tpl[1]
+
+  if multiclass:
+    labs = np.argmax(labs, axis = -1)
+    preds = np.argmax(preds, axis = -1)
+
+  predictions = np.squeeze(np.greater(preds[0], 0.5)).flatten()
+  
+  labels = np.squeeze(labs).flatten()
+  return labels, predictions
+
+def make_confusion_matrix(dataset, model, multiclass = False):
+  data = dataset.unbatch().batch(1) # batch data
+  iterator = iter(data) # create a vector to iterate over so that you can call for loop on this object
+  i = 0
+  m = model
+
+  # while the iterator still has unread batches of data...
+  while True:
+    # try to create a dataset from the current batch
+    try:
+      tpl = next(iterator)
+    # if the iterator is out of data, break loop
+    except StopIteration:
+      break
+    # else with no error...
+    else:
+      # make our confusion matrix data for current batch
+      labels, preds = make_confusion_matrix_data(tpl, m, False)
+
+      # create confusion matrix containing raw counts from current data
+      con_mat_current = tf.math.confusion_matrix(labels = labels, predictions = preds, num_classes = 2).numpy()
+      # get row sums
+      rowsums_current = con_mat_current.sum(axis = 1)
+      # if we're on the first batch
+      if i == 0:
+        con_mat = con_mat_current
+      else:
+        con_mat = con_mat + con_mat_current
+      i += 1
+  print(i)
+  return con_mat
+
+
