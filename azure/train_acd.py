@@ -35,6 +35,12 @@ parser.add_argument('--bands', type = list, required = True, default = ['B2', 'B
 parser.add_argument('--splits', type = list, default = None )
 args = parser.parse_args()
 
+SPLITS = args.splits
+TRAIN_SIZE = args.size
+BATCH = args.batch
+EPOCHS = args.epochs
+BIAS = args.bias
+WEIGHT = args.weight
 LR = args.learning_rate
 BANDS = args.bands
 RESPONSE = args.response
@@ -62,16 +68,19 @@ out_dir = './outputs'
 log_dir = './logs'
 
 # create training dataset
-train_files = []
-for path in args.train_data:
-    train_files += glob.glob(os.path.join(args.train_data, 'UNET_256_*.gz'))
-    
-eval_files = []
-for path in args.eval_data:
-    eval_files += glob.glob(os.path.join(args.eval_data, 'UNET_256_*.gz'))
-    
-#train_files = glob.glob(os.path.join(args.data_folder, 'training', 'UNET_256_[A-Z]*.gz'))
-#eval_files =  glob.glob(os.path.join(args.data_folder, 'eval', 'UNET_256_[A-Z]*.gz'))
+#train_files = []
+#for path in args.train_data:
+#    train_files += glob.glob(os.path.join(args.train_data, 'UNET_256_*.gz'))
+#    
+#eval_files = []
+#for path in args.eval_data:
+#    eval_files += glob.glob(os.path.join(args.eval_data, 'UNET_256_*.gz'))
+#    
+train_files = glob.glob(os.path.join(args.data_folder, 'training', 'UNET_256_[A-Z]*.gz'))
+eval_files =  glob.glob(os.path.join(args.data_folder, 'eval', 'UNET_256_[A-Z]*.gz'))
+
+train_files = glob.glob(os.path.join(args.train_data, 'UNET_256_[A-Z]*.gz'))
+eval_files =  glob.glob(os.path.join(args.eval_data, 'UNET_256_[A-Z]*.gz'))
 
 print(len(train_files))
 
@@ -81,8 +90,8 @@ training = processing.get_training_dataset(
         features = BANDS,
         response = RESPONSE,
         buff = BUFFER,
-        batch = args.batch,
-        splits = args.splits,
+        batch = BATCH,
+        splits = SPLITS,
         repeat = True)
 
 evaluation = processing.get_eval_dataset(
@@ -90,16 +99,16 @@ evaluation = processing.get_eval_dataset(
         ftDict = FEATURES_DICT,
         features = BANDS,
         response = RESPONSE,
-        splits = args.splits)
+        splits = SPLITS)
 
 def get_weighted_bce(y_true, y_pred):
-    return model_tools.weighted_bce(y_true, y_pred, args.weight)
+    return model_tools.weighted_bce(y_true, y_pred, WEIGHT)
 
 # get the run context
 run = Run.get_context()
 
 # build the model
-m = model_tools.get_model(depth = len(BANDS), optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS, bias = args.bias)
+m = model_tools.get_model(depth = len(BANDS), optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS, bias = BIAS)
 
 # compile the model with our loss fxn, metrics, and optimizer
 #m.compile(
