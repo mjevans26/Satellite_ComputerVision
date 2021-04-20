@@ -14,7 +14,6 @@ import glob
 import json
 import math
 import tensorflow as tf
-import numpy as np
 from datetime import datetime
 from azureml.core import Run
 
@@ -30,7 +29,7 @@ parser.add_argument('--bias', type = float, default = None, help = 'bias value f
 parser.add_argument('-e', '--epochs', type = int, default = 10, help = 'Number of epochs to train the model for')
 parser.add_argument('-b', '--batch', type = int, default = 16, help = 'Training batch size')
 parser.add_argument('--size', type = int, default = 3000, help = 'Size of training dataset')
-parser.add_argument('--kernel-size', type = int, default = 256, dest = 'kernel_size', help = 'Size in pixels of incoming patches')
+parser.add_argument('--kernel_size', type = int, default = 256, dest = 'kernel_size', help = 'Size in pixels of incoming patches')
 parser.add_argument('--response', type = str, required = True, help = 'Name of the response variable in tfrecords')
 parser.add_argument('--bands', type = list, required = True, default = ['B2', 'B3', 'B4', 'B8', 'B2_1', 'B3_1', 'B4_1', 'B8_1'])
 parser.add_argument('--splits', type = list, default = None )
