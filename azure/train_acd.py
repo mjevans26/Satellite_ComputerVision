@@ -31,11 +31,11 @@ parser.add_argument('-b', '--batch', type = int, default = 16, help = 'Training 
 parser.add_argument('--size', type = int, default = 3000, help = 'Size of training dataset')
 parser.add_argument('--kernel_size', type = int, default = 256, dest = 'kernel_size', help = 'Size in pixels of incoming patches')
 parser.add_argument('--response', type = str, required = True, help = 'Name of the response variable in tfrecords')
-parser.add_argument('--bands', type = list, required = True, default = ['B2', 'B3', 'B4', 'B8', 'B2_1', 'B3_1', 'B4_1', 'B8_1'])
+parser.add_argument('--bands', type = list, required = False, default = ['B2', 'B3', 'B4', 'B8', 'B2_1', 'B3_1', 'B4_1', 'B8_1'])
 parser.add_argument('--splits', type = list, default = None )
 args = parser.parse_args()
 
-SPLITS = args.splits
+SPLITS = [4,4]#args.splits
 TRAIN_SIZE = args.size
 BATCH = args.batch
 EPOCHS = args.epochs
