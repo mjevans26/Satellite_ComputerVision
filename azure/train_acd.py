@@ -17,12 +17,14 @@ import tensorflow as tf
 from datetime import datetime
 from azureml.core import Run
 
+
 # Set Global variables
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--train_data', type = str, required = True, help = 'Training datasets')
 parser.add_argument('--eval_data', type = str, required = True, help = 'Evaluation datasets')
 parser.add_argument('--test_data', type = str, default = None, help = 'directory containing test image(s) and mixer')
+parser.add_argument('--model_dir', type = str, required = False, default = None, help = 'directory containing model for continued training')
 parser.add_argument('-lr', '--learning_rate', type = float, default = 0.001, help = 'Initial learning rate')
 parser.add_argument('-w', '--weight', type = float, default = 1.0, help = 'Positive sample weight for iou, bce, etc.')
 parser.add_argument('--bias', type = float, default = None, help = 'bias value for keras output layer initializer')
@@ -31,18 +33,18 @@ parser.add_argument('-b', '--batch', type = int, default = 16, help = 'Training 
 parser.add_argument('--size', type = int, default = 3000, help = 'Size of training dataset')
 parser.add_argument('--kernel_size', type = int, default = 256, dest = 'kernel_size', help = 'Size in pixels of incoming patches')
 parser.add_argument('--response', type = str, required = True, help = 'Name of the response variable in tfrecords')
-parser.add_argument('--bands', type = str, nargs = '+', required = False, default = ['B2', 'B3', 'B4', 'B8_1', 'B2_1', 'B3_1', 'B4_1', 'B8_1'])
+parser.add_argument('--bands', type = str, nargs = '+', required = False, default = ['B2', 'B3', 'B4', 'B8', 'B2_1', 'B3_1', 'B4_1', 'B8_1'])
 parser.add_argument('--splits', type = int, nargs = '+', required = False, default = [4,4] )
 args = parser.parse_args()
 
-SPLITS = [4,4]#args.splits
+SPLITS = args.splits
 TRAIN_SIZE = args.size
 BATCH = args.batch
 EPOCHS = args.epochs
 BIAS = args.bias
 WEIGHT = args.weight
 LR = args.learning_rate
-BANDS = ['B2', 'B3', 'B4', 'B8', 'B2_1', 'B3_1', 'B4_1', 'B8_1']#args.bands
+BANDS = args.bands
 RESPONSE = args.response
 OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
 
@@ -101,22 +103,10 @@ evaluation = processing.get_eval_dataset(
         response = RESPONSE,
         splits = SPLITS)
 
+## DEFINE CALLBACKS
+
 def get_weighted_bce(y_true, y_pred):
     return model_tools.weighted_bce(y_true, y_pred, WEIGHT)
-
-# get the run context
-run = Run.get_context()
-
-# build the model
-m = model_tools.get_model(depth = len(BANDS), optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS, bias = BIAS)
-
-# compile the model with our loss fxn, metrics, and optimizer
-#m.compile(
-#        optimizer = OPTIMIZER,
-#        loss = LOSS,
-#        metrics = METRICS
-#        )
-
 
 # get the current time
 now = datetime.now() 
@@ -135,8 +125,7 @@ checkpoint = tf.keras.callbacks.ModelCheckpoint(
 # define a tensorboard callback to write training logs
 tensorboard = tf.keras.callbacks.TensorBoard(log_dir = log_dir)
 
-# if test images provided, define an image saving checkpoint
-
+# if test images provided, define an image saving callback
 if args.test_data:
     
     test_files = glob.glob(os.path.join(args.test_data, '*.gz'))
@@ -166,13 +155,32 @@ if args.test_data:
 else:
     callbacks = [checkpoint, tensorboard]
 
+# get the run context
+run = Run.get_context()
+
+## BUILD THE MODEL
+
+# if a model directory provided we will reload previously trained model and weights
+if args.model_dir:
+    # load our previously trained model and weights
+    model_file = glob.glob(os.path.join(args.model_dir, '*.h5'))[0]
+    weights_file = glob.glob(os.path.join(args.model_dir, '*.hdf5'))[0]
+    m = model_tools.retrain_model(model_file, checkpoint, evaluation, 'val_mean_iou', weights_file, weight = WEIGHT)
+    # TODO: make this dynamic
+    initial_epoch = 100
+# otherwise build a model from scratch with provided specs
+else:
+    m = model_tools.get_model(depth = len(BANDS), optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS, bias = BIAS)
+    initial_epoch = 0
+
 # train the model
 m.fit(
         x = training,
-        epochs = args.epochs,
+        epochs = EPOCHS,
         steps_per_epoch = int(TRAIN_SIZE//BATCH),
         validation_data = evaluation,
-        callbacks = callbacks
+        callbacks = callbacks,
+        set_initial_epoch = initial_epoch
         )
 
 m.save(os.path.join(out_dir, 'unet256.h5'))

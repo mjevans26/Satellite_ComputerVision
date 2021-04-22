@@ -11,6 +11,7 @@ from tensorflow.python.keras import losses
 from tensorflow.python.keras import models
 from tensorflow.python.keras import metrics
 from tensorflow.python.keras import optimizers
+from tensorflow.python.keras import backend
 import numpy as np
 
 def weighted_bce(y_true, y_pred, weight):
@@ -175,5 +176,39 @@ def make_confusion_matrix(dataset, model, multiclass = False):
       i += 1
   print(i)
   return con_mat
+
+def retrain_model(model_file, checkpoint, eval_data, metric, weights_file = None, weight = None):
+    """
+    Load a previously trained model and continue training
+    Parameters:
+        model_file (str): path to model .h5 file
+        lr (float): initial learning rate
+        eval_data (tf.Dataset): data on which to calculate starting metrics
+        metric (str): metric name for checkpoint logging
+        weights_file (str): path to .hdf5 model weights file
+    Return:
+        keras.Model: 
+    """
+    
+    def get_weighted_bce(y_true, y_pred):
+        return weighted_bce(y_true, y_pred, weight)
+    
+    if weight:
+        custom_objects = {'get_weighted_bce': get_weighted_bce}
+    else:
+        custom_objects = {}
+        
+    # load our previously trained model and weights    
+    m = models.load_model(model_file, custom_objects = custom_objects)
+    if weights_file:
+        m.load_weights(weights_file)
+    # set the initial evaluation metric for saving checkpoints to the previous best value
+    evalMetrics = m.evaluate(x = eval_data, verbose = 1)
+    checkpoint.best = evalMetrics[metric]
+    # set the learning rate for re-training
+    lr = backend.eval(m.optimizer.learning_rate)
+    backend.set_value(m.optimizer.learning_rate, lr)
+    
+    return m
 
 
