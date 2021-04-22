@@ -20,8 +20,8 @@ from azureml.core import Run
 # Set Global variables
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--train_data', type = list, required = True, help = 'Training datasets')
-parser.add_argument('--eval_data', type = list, required = True, help = 'Evaluation datasets')
+parser.add_argument('--train_data', type = str, required = True, help = 'Training datasets')
+parser.add_argument('--eval_data', type = str, required = True, help = 'Evaluation datasets')
 parser.add_argument('--test_data', type = str, default = None, help = 'directory containing test image(s) and mixer')
 parser.add_argument('-lr', '--learning_rate', type = float, default = 0.001, help = 'Initial learning rate')
 parser.add_argument('-w', '--weight', type = float, default = 1.0, help = 'Positive sample weight for iou, bce, etc.')
@@ -31,8 +31,8 @@ parser.add_argument('-b', '--batch', type = int, default = 16, help = 'Training 
 parser.add_argument('--size', type = int, default = 3000, help = 'Size of training dataset')
 parser.add_argument('--kernel_size', type = int, default = 256, dest = 'kernel_size', help = 'Size in pixels of incoming patches')
 parser.add_argument('--response', type = str, required = True, help = 'Name of the response variable in tfrecords')
-parser.add_argument('--bands', type = list, required = False, default = ['B2', 'B3', 'B4', 'B8', 'B2_1', 'B3_1', 'B4_1', 'B8_1'])
-parser.add_argument('--splits', type = list, default = None )
+parser.add_argument('--bands', type = str, nargs = '+', required = False, default = ['B2', 'B3', 'B4', 'B8_1', 'B2_1', 'B3_1', 'B4_1', 'B8_1'])
+parser.add_argument('--splits', type = int, nargs = '+', required = False, default = [4,4] )
 args = parser.parse_args()
 
 SPLITS = [4,4]#args.splits
@@ -42,7 +42,7 @@ EPOCHS = args.epochs
 BIAS = args.bias
 WEIGHT = args.weight
 LR = args.learning_rate
-BANDS = args.bands
+BANDS = ['B2', 'B3', 'B4', 'B8', 'B2_1', 'B3_1', 'B4_1', 'B8_1']#args.bands
 RESPONSE = args.response
 OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
 
@@ -76,8 +76,8 @@ log_dir = './logs'
 #for path in args.eval_data:
 #    eval_files += glob.glob(os.path.join(args.eval_data, 'UNET_256_*.gz'))
 #    
-train_files = glob.glob(os.path.join(args.data_folder, 'training', 'UNET_256_[A-Z]*.gz'))
-eval_files =  glob.glob(os.path.join(args.data_folder, 'eval', 'UNET_256_[A-Z]*.gz'))
+# train_files = glob.glob(os.path.join(args.data_folder, 'training', 'UNET_256_[A-Z]*.gz'))
+# eval_files =  glob.glob(os.path.join(args.data_folder, 'eval', 'UNET_256_[A-Z]*.gz'))
 
 train_files = glob.glob(os.path.join(args.train_data, 'UNET_256_[A-Z]*.gz'))
 eval_files =  glob.glob(os.path.join(args.eval_data, 'UNET_256_[A-Z]*.gz'))
@@ -151,7 +151,7 @@ if args.test_data:
     file_writer = tf.summary.create_file_writer(log_dir + '/preds')
 
     def log_pred_image(epoch, logs):
-      out_image = callback_predictions(pred_data, model, mixer)
+      out_image = callback_predictions(pred_data, m, mixer)
       prob = out_image[:, :, 0]
       figure = plt.figure(figsize=(10, 10))
       plt.imshow(prob)
@@ -170,7 +170,7 @@ else:
 m.fit(
         x = training,
         epochs = args.epochs,
-        steps_per_epoch = int(args.size//args.batch),
+        steps_per_epoch = int(TRAIN_SIZE//BATCH),
         validation_data = evaluation,
         callbacks = callbacks
         )
