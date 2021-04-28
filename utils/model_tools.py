@@ -209,6 +209,6 @@ def retrain_model(model_file, checkpoint, eval_data, metric, weights_file = None
     lr = backend.eval(m.optimizer.learning_rate)
     backend.set_value(m.optimizer.learning_rate, lr)
     
-    return m
+    return m, checkpoint
 
 
