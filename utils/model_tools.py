@@ -167,8 +167,9 @@ def make_confusion_matrix(dataset, model, multiclass = False):
       # create confusion matrix containing raw counts from current data
       con_mat_current = tf.math.confusion_matrix(labels = labels, predictions = preds, num_classes = 2).numpy()
       # get row sums
-      rowsums_current = con_mat_current.sum(axis = 1)
+#      rowsums_current = con_mat_current.sum(axis = 1)
       # if we're on the first batch
+      con_mat = []
       if i == 0:
         con_mat = con_mat_current
       else:
