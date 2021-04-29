@@ -169,7 +169,6 @@ def make_confusion_matrix(dataset, model, multiclass = False):
       # get row sums
 #      rowsums_current = con_mat_current.sum(axis = 1)
       # if we're on the first batch
-      con_mat = []
       if i == 0:
         con_mat = con_mat_current
       else:
