@@ -76,7 +76,7 @@ def aug_img(img):
       #since were gonna map_fn this on a 4d image, output must be 3d, so squeeze the artificial 'sample' dimension
     return tf.squeeze(x)
 
-def normalize(x, axes=[0, 1, 2], epsilon=1e-8, moments = None, splits = None):
+def normalize(x, axes=[2], epsilon=1e-8, moments = None, splits = None):
     """
     Standardize incoming image patches by mean and variance.
 

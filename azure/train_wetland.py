@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
 """
+Created on Wed May  5 12:10:06 2021
+
+@author: MEvans
+"""
+
+# -*- coding: utf-8 -*-
+"""
 Created on Sat Jan  2 12:41:40 2021
 
 @author: MEvans
@@ -35,8 +42,11 @@ parser.add_argument('--kernel_size', type = int, default = 256, dest = 'kernel_s
 parser.add_argument('--response', type = str, required = True, help = 'Name of the response variable in tfrecords')
 parser.add_argument('--bands', type = str, nargs = '+', required = False, default = ['B2', 'B3', 'B4', 'B8', 'B2_1', 'B3_1', 'B4_1', 'B8_1'])
 parser.add_argument('--splits', type = int, nargs = '+', required = False, default = None )
+parser.add_argument('--one_hot_levels', type = int, nargs = '+', required = False, default = [11])
+parser.add_argument('--one_hot_names', type = str, nargs = '+', required = False, default = ['geomorphons'])
 args = parser.parse_args()
 
+ONE_HOT = dict(zip(args.one_hot_name, args.one_hot_levels))
 SPLITS = args.splits
 TRAIN_SIZE = args.size
 BATCH = args.batch
@@ -95,15 +105,17 @@ training = processing.get_training_dataset(
         response = RESPONSE,
         buff = BUFFER,
         batch = BATCH,
+        repeat = True,
         splits = SPLITS,
-        repeat = True)
+        one_hot = ONE_HOT)
 
 evaluation = processing.get_eval_dataset(
         files = eval_files,
         ftDict = FEATURES_DICT,
         features = BANDS,
         response = RESPONSE,
-        splits = SPLITS)
+        splits = SPLITS,
+        one_hot = ONE_HOT)
 
 ## DEFINE CALLBACKS
 

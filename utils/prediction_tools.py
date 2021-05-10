@@ -203,7 +203,7 @@ def callback_predictions(imageDataset, model, mixer, kernel_shape = [256, 256], 
 
     return rows  
 
-def make_array_predictions(imageDataset, model, bucket, jsonFile, kernel_shape = [256, 256], kernel_buffer = [128,128]):
+def make_array_predictions(imageDataset, model, jsonFile, kernel_shape = [256, 256], kernel_buffer = [128,128]):
     """Create a 3D array of prediction outputs from TFRecord dataset
     
     Given a set of TFRecords representing image patches on which to run model predictions,
@@ -214,7 +214,6 @@ def make_array_predictions(imageDataset, model, bucket, jsonFile, kernel_shape =
     Parameters:
         imageDataset (tf.Dataset): image patch tensors on which to run predictions
         model (keras Model): model used to make predictions
-        bucket (gcs bucket): google-cloud-storage Bucket object
         jsonFile (str): complete GCS filepath to json file
         kernel_size(tpl): size of image patch in pixels
         kernel_buffer (tpl): pixels to trim from H, W, dimensions of each output patch
@@ -223,10 +222,13 @@ def make_array_predictions(imageDataset, model, bucket, jsonFile, kernel_shape =
     """
     # we need metadata from the json file to reconstruct prediction patches
     # Load the contents of the mixer file to a JSON object.
-    jsonFile = '/'.join(jsonFile.split(sep = '/')[3:])
-    blob = bucket.get_blob(jsonFile) #23Mar21 update to use google-cloud-storage library
-    jsonText = blob.download_as_string().decode('utf-8')
-    mixer = json.loads(jsonText)
+#    jsonFile = '/'.join(jsonFile.split(sep = '/')[3:])
+#    blob = bucket.get_blob(jsonFile) #23Mar21 update to use google-cloud-storage library
+#    jsonText = blob.download_as_string().decode('utf-8')
+#    mixer = json.loads(jsonText)
+    
+    with open(jsonFile,) as file:
+        mixer = json.load(file)
     
 #    # Load the contents of the mixer file to a JSON object.
 #    jsonText = !gsutil cat {jsonFile}
