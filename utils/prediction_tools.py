@@ -71,7 +71,7 @@ def doExport(image, features, scale, bucket, pred_base, pred_path, region, kerne
     
   
 #def makePredDataset(bucket, pred_path, pred_image_base, kernel_buffer, features, raw = None):
-def makePredDataset(file_list, features, kernel_shape = [256, 256], kernel_buffer = [128, 128], one_hot = None, **kwargs):
+def makePredDataset(file_list, features, kernel_shape = [256, 256], kernel_buffer = [128, 128], axes = [2], one_hot = None, **kwargs):
     """ Make a TFRecord Dataset that can be used for predictions
     Parameters:
         bucket (GCS bucket): google cloud storage bucket object
@@ -81,6 +81,7 @@ def makePredDataset(file_list, features, kernel_shape = [256, 256], kernel_buffe
         kernel_shape (tpl): size of image patch in pixels
         kernel_buffer (tpl): pixels to trim from H, W dimensions of prediction
         features (list): names of features in incoming data
+        axes (list): axes for normalization
         one_hot (dict): key:value pairs for name of one-hot variable and desired one-hot depth
     Return:
         TFRecord Dataset
