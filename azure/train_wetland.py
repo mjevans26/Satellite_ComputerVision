@@ -46,7 +46,7 @@ parser.add_argument('--one_hot_levels', type = int, nargs = '+', required = Fals
 parser.add_argument('--one_hot_names', type = str, nargs = '+', required = False, default = ['geomorphons'])
 args = parser.parse_args()
 
-ONE_HOT = dict(zip(args.one_hot_name, [args.one_hot_levels]))
+ONE_HOT = dict(zip(args.one_hot_names, [args.one_hot_levels]))
 SPLITS = args.splits
 TRAIN_SIZE = args.size
 BATCH = args.batch
