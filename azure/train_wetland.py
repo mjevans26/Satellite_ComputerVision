@@ -42,11 +42,11 @@ parser.add_argument('--kernel_size', type = int, default = 256, dest = 'kernel_s
 parser.add_argument('--response', type = str, required = True, help = 'Name of the response variable in tfrecords')
 parser.add_argument('--bands', type = str, nargs = '+', required = False, default = ['B3_summer', 'B3_fall', 'B3_spring', 'B4_summer', 'B4_fall', 'B4_spring', 'B5_summer', 'B5_fall', 'B5_spring', 'B6_summer', 'B6_fall', 'B6_spring', 'B8_summer', 'B8_fall', 'B8_spring', 'B11_summer', 'B11_fall', 'B11_spring', 'B12_summer', 'B12_fall', 'B12_spring', 'R', 'G', 'B', 'N', 'lidar_intensity', 'geomorphons'])
 parser.add_argument('--splits', type = int, nargs = '+', required = False, default = None )
-parser.add_argument('--one_hot_levels', type = int, nargs = '+', required = False, default = 11)
+parser.add_argument('--one_hot_levels', type = int, nargs = '+', required = False, default = [11])
 parser.add_argument('--one_hot_names', type = str, nargs = '+', required = False, default = ['geomorphons'])
 args = parser.parse_args()
 
-ONE_HOT = dict(zip(args.one_hot_names, [args.one_hot_levels]))
+ONE_HOT = dict(zip(args.one_hot_names, args.one_hot_levels))
 SPLITS = args.splits
 TRAIN_SIZE = args.size
 BATCH = args.batch
@@ -57,7 +57,8 @@ LR = args.learning_rate
 BANDS = args.bands
 RESPONSE = args.response
 OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
-DEPTH = len(BANDS)+args.one_hot_levels-1
+DEPTH = len(BANDS)+sum(args.one_hot_levels)-len(args.one_hot_levels)
+print(BANDS)
 
 METRICS = [tf.keras.metrics.categorical_accuracy, tf.keras.metrics.MeanIoU(num_classes=2, name = 'mean_iou')]
 
@@ -95,7 +96,6 @@ for root, dirs, files in os.walk(args.eval_data):
     for f in files:
         eval_files.append(os.path.join(root, f))
         
-print(eval_files)
 # train_files = glob.glob(os.path.join(args.train_data, 'UNET_256_[A-Z]*.gz'))
 # eval_files =  glob.glob(os.path.join(args.eval_data, 'UNET_256_[A-Z]*.gz'))
 
