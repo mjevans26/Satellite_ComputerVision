@@ -40,13 +40,13 @@ parser.add_argument('-b', '--batch', type = int, default = 16, help = 'Training 
 parser.add_argument('--size', type = int, default = 3000, help = 'Size of training dataset')
 parser.add_argument('--kernel_size', type = int, default = 256, dest = 'kernel_size', help = 'Size in pixels of incoming patches')
 parser.add_argument('--response', type = str, required = True, help = 'Name of the response variable in tfrecords')
-parser.add_argument('--bands', type = str, nargs = '+', required = False, default = ['B2', 'B3', 'B4', 'B8', 'B2_1', 'B3_1', 'B4_1', 'B8_1'])
+parser.add_argument('--bands', type = str, nargs = '+', required = False, default = ['B3_summer', 'B3_fall', 'B3_spring', 'B4_summer', 'B4_fall', 'B4_spring', 'B5_summer', 'B5_fall', 'B5_spring', 'B6_summer', 'B6_fall', 'B6_spring', 'B8_summer', 'B8_fall', 'B8_spring', 'B11_summer', 'B11_fall', 'B11_spring', 'B12_summer', 'B12_fall', 'B12_spring', 'R', 'G', 'B', 'N', 'lidar_intensity', 'geomorphons', 'wetland'])
 parser.add_argument('--splits', type = int, nargs = '+', required = False, default = None )
-parser.add_argument('--one_hot_levels', type = int, nargs = '+', required = False, default = [11])
+parser.add_argument('--one_hot_levels', type = int, nargs = '+', required = False, default = 11)
 parser.add_argument('--one_hot_names', type = str, nargs = '+', required = False, default = ['geomorphons'])
 args = parser.parse_args()
 
-ONE_HOT = dict(zip(args.one_hot_name, args.one_hot_levels))
+ONE_HOT = dict(zip(args.one_hot_name, [args.one_hot_levels]))
 SPLITS = args.splits
 TRAIN_SIZE = args.size
 BATCH = args.batch
@@ -57,6 +57,7 @@ LR = args.learning_rate
 BANDS = args.bands
 RESPONSE = args.response
 OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
+DEPTH = len(BANDS)+args.one_hot_levels-1
 
 METRICS = [tf.keras.metrics.categorical_accuracy, tf.keras.metrics.MeanIoU(num_classes=2, name = 'mean_iou')]
 
@@ -160,7 +161,7 @@ if args.model_id:
     initial_epoch = 100
 # otherwise build a model from scratch with provided specs
 else:
-    m = model_tools.get_model(depth = len(BANDS), optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS, bias = BIAS)
+    m = model_tools.get_model(depth = DEPTH, optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS, bias = BIAS)
     initial_epoch = 0
 
 # if test images provided, define an image saving callback
