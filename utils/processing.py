@@ -207,7 +207,7 @@ def to_tuple(inputs, features, response, axes = [2], **kwargs):
     # stack the augmented bands, optional one-hot tensors, and response variable
     if one_hot:
         featList = [inputs.get(key) for key in features if key not in one_hot.keys()]
-        hotList = [tf.squeeze(tf.one_hot(tf.cast(inputs.get(key), tf.uint8), val, axis = 2)) for key, val in one_hot.items()]
+        hotList = [tf.one_hot(tf.cast(inputs.get(key), tf.uint8), val, axis = 2) for key, val in one_hot.items()]
     else:
         featList = [inputs.get(key) for key in features]
         hotList = []
@@ -218,7 +218,8 @@ def to_tuple(inputs, features, response, axes = [2], **kwargs):
     bands = normalize(bands, axes = axes, moments = moments, splits = splits)
     
     if one_hot:
-      stacked = tf.concat([bands, hotList, res], axis =2)
+      hotStack = tf.stack(hotList, axis = 2)
+      stacked = tf.concat([bands, hotStack, res], axis =2)
     else:
       stacked = tf.concat([bands, res], axis = 2)
     
