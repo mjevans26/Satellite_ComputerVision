@@ -218,7 +218,7 @@ def to_tuple(inputs, features, response, axes = [2], **kwargs):
     bands = normalize(bands, axes = axes, moments = moments, splits = splits)
     
     if one_hot:
-      hotStack = tf.stack(hotList, axis = 2)
+      hotStack = tf.concat(hotList, axis = 2)
       stacked = tf.concat([bands, hotStack, res], axis =2)
     else:
       stacked = tf.concat([bands, res], axis = 2)
