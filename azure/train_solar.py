@@ -83,7 +83,6 @@ for root, dirs, files in os.walk(args.eval_data):
     for f in files:
         eval_files.append(os.path.join(root, f))
         
-print(eval_files)
 # train_files = glob.glob(os.path.join(args.train_data, 'UNET_256_[A-Z]*.gz'))
 # eval_files =  glob.glob(os.path.join(args.eval_data, 'UNET_256_[A-Z]*.gz'))
 
