@@ -201,13 +201,6 @@ def to_tuple(inputs, features, response, axes = [2], splits = None, one_hot = No
 #    splits = kwargs.get('splits')
 #    moments = kwargs.get('moments')
     
-    # If custom preprocessing functions are specified add respective bands
-    derList = []
-    for fxn in kwargs.values():
-        der = fxn(inputs)
-        derList.append(der)
-    
-    derTensor = tf.stack(derList, axis = 2)
 #    inputsList = [inputs.get(key) for key in features + [response]]
     
     res = tf.expand_dims(inputs.get(response), axis = 2)
@@ -218,18 +211,24 @@ def to_tuple(inputs, features, response, axes = [2], splits = None, one_hot = No
         hotList = [tf.one_hot(tf.cast(inputs.get(key), tf.uint8), val, axis = 2) for key, val in one_hot.items()]
     else:
         featList = [inputs.get(key) for key in features]
-        featList.extend(derList)
 
     # stack, transpose, augment, and normalize continuous bands
     bands = tf.transpose(tf.stack(featList, axis = 0), [1,2,0])
     bands = aug_color(bands)
     bands = normalize(bands, axes = axes, moments = moments, splits = splits)
     
+    # If custom preprocessing functions are specified add respective bands
+
+    for fxn in kwargs.values():
+        der = fxn(inputs)
+        der = tf.expand_dims(der, axis = 2)
+        bands = tf.concat([bands, der], axis = 2)
+    
     if one_hot:
       hotStack = tf.concat(hotList, axis = 2)
-      stacked = tf.concat([bands, derTensor, hotStack, res], axis =2)
+      stacked = tf.concat([bands, hotStack, res], axis =2)
     else:
-      stacked = tf.concat([bands, derTensor, res], axis = 2)
+      stacked = tf.concat([bands, res], axis = 2)
     
     # perform morphological augmentation
     stacked = aug_img(stacked)
@@ -312,7 +311,7 @@ def get_eval_dataset(files, ftDict, features, response, axes = [2], splits = Non
       A tf.data.Dataset of evaluation data.
     """
 
-	dataset = get_dataset(files, ftDict, features, response, axes, splits, one_hot, moments **kwargs)
+	dataset = get_dataset(files, ftDict, features, response, axes, splits, one_hot, moments, **kwargs)
 	dataset = dataset.batch(1)
 	return dataset
 
