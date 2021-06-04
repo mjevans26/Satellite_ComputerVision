@@ -175,7 +175,7 @@ if args.test_data:
     with open(jsonFile,) as file:
         mixer = json.load(file)
         
-    pred_data = makePredDataset(test_files, BANDS)
+    pred_data = makePredDataset(test_files, BANDS, one_hot = ONE_HOT)
     file_writer = tf.summary.create_file_writer(log_dir + '/preds')
 
     def log_pred_image(epoch, logs):

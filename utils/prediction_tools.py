@@ -71,7 +71,7 @@ def doExport(image, features, scale, bucket, pred_base, pred_path, region, kerne
     
   
 #def makePredDataset(bucket, pred_path, pred_image_base, kernel_buffer, features, raw = None):
-def makePredDataset(file_list, features, kernel_shape = [256, 256], kernel_buffer = [128, 128], axes = [2], one_hot = None, **kwargs):
+def makePredDataset(file_list, features, kernel_shape = [256, 256], kernel_buffer = [128, 128], axes = [2], splits = None, moments = None, one_hot = None, **kwargs):
     """ Make a TFRecord Dataset that can be used for predictions
     Parameters:
         bucket (GCS bucket): google cloud storage bucket object
@@ -109,28 +109,30 @@ def makePredDataset(file_list, features, kernel_shape = [256, 256], kernel_buffe
       return tf.io.parse_single_example(example_proto, imageFeaturesDict)
     
     def toTupleImage(dic):
-      derList = []
-      for fxn in kwargs.values():
-        der = fxn(dic)
-        derList.append(der)
-      
-      if one_hot:
-          # reduce the list of features to those not being cast to one-hot
-          feats = [i for i in features if i not in one_hot.keys()]
-          # gather these features into a list
-          normList = [dic.get(key) for key in feats]
-          normStack = tf.transpose(tf.stack(normList, axis = 0), [1 ,2, 0])
-          normStack = normalize(normStack, axes = [2])
-            
-          # cast one-hot features to their corresponding depth and organize into a list
-          oneHotList = [tf.one_hot(tf.cast(dic.get(key), tf.uint8), val, axis = 2) for key, val in one_hot.items()]
-          
-          stacked = tf.concat([oneHotList, normStack, derList], axis=2)
-      else:
-          featList = [dic.get(key) for key in features]
-          stacked = tf.transpose(tf.stack(featList + derList, axis = 0), [1,2,0])
-          stacked = normalize(stacked, axes = [2])
-      return stacked
+        
+        # stack the augmented bands, optional one-hot tensors, and response variable
+        if one_hot:
+            featList = [dic.get(key) for key in features if key not in one_hot.keys()]
+            hotList = [tf.one_hot(tf.cast(dic.get(key), tf.uint8), val, axis = 2) for key, val in one_hot.items()]
+        else:
+            featList = [dic.get(key) for key in features]
+        
+        bands = tf.transpose(tf.stack(featList, axis = 0), [1,2,0])
+        bands = normalize(bands, axes = axes, moments = moments, splits = splits)
+            # If custom preprocessing functions are specified add respective bands
+
+        for fxn in kwargs.values():
+            der = fxn(dic)
+            der = tf.expand_dims(der, axis = 2)
+            bands = tf.concat([bands, der], axis = 2)
+        
+        if one_hot:
+          hotStack = tf.concat(hotList, axis = 2)
+          stacked = tf.concat([bands, hotStack], axis =2)
+        else:
+          stacked = tf.concat([bands], axis = 2)
+        
+        return stacked
   
   # Create a dataset(s) from the TFRecord file(s) in Cloud Storage.
     
