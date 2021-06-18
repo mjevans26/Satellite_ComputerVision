@@ -182,10 +182,12 @@ else:
     callbacks = [checkpoint, tensorboard]
     
 # train the model
+steps_per_epoch = int(TRAIN_SIZE//BATCH)
+print(steps_per_epoch)
 m.fit(
         x = training,
         epochs = EPOCHS,
-        steps_per_epoch = int(TRAIN_SIZE//BATCH),
+        steps_per_epoch = steps_per_epoch,
         validation_data = evaluation,
         callbacks = callbacks#,
         #initial_epoch = initial_epoch
