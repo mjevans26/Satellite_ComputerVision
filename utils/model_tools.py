@@ -89,7 +89,7 @@ def get_model(depth, optim, loss, mets, bias = None):
         depth (int): number of training features (i.e. bands)
         optim (tf.keras.optimizer): keras optimizer
         loss (tf.keras.loss): keras or custom loss function
-        mets (list<tf.keras.metrics): list of keras metrics
+        mets (dict<tf.keras.metrics): dictionary of metrics for logits and classes. elements are lists of keras metrics
     Returns:
         tf.keras.model: compiled U-Net model
     """
@@ -108,15 +108,16 @@ def get_model(depth, optim, loss, mets, bias = None):
     decoder2 = decoder_block(decoder3, encoder2, 128) # 64
     decoder1 = decoder_block(decoder2, encoder1, 64) # 128
     decoder0 = decoder_block(decoder1, encoder0, 32) # 256
-    outputs = layers.Conv2D(1, (1, 1), activation='sigmoid', bias_initializer = bias)(decoder0)
-
-    model = models.Model(inputs=[inputs], outputs=[outputs])
+    logits = layers.Conv2D(1, (1, 1), activation='sigmoid', bias_initializer = bias, name = 'logits')(decoder0)
+    # logits is a probability and classes is binary. in solar, "tf.cast(tf.greater(x, 0.9)" was used  to avoid too many false positives
+    classes = layers.Lambda(lambda x: tf.cast(tf.greater(x, 0.5), dtype = tf.int32), name = 'classes')(logits)
+    model = models.Model(inputs=[inputs], outputs=[logits, classes])
 
     model.compile(
             optimizer=optim, 
-            loss = loss,
+            loss = {'logits': loss},
             #loss=losses.get(LOSS),
-            metrics=[metrics.get(metric) for metric in mets])
+            metrics=mets)
 
     return model
 
@@ -134,6 +135,7 @@ def make_confusion_matrix_data(tpl, model, multiclass = False):
     tuple: 1D label and prediction arrays from the input datset
   """
   preds = model.predict(tpl[0], verbose = 1)
+  preds = preds[:,:,0]
   labs = tpl[1]
 
   if multiclass:

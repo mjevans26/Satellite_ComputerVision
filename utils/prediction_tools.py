@@ -169,7 +169,7 @@ def callback_predictions(imageDataset, model, mixer, kernel_shape = [256, 256], 
     # some models will outputs probs and classes as a list
     if type(predictions) == list:
         # in this case, concatenate list elments into a single 4d array along last dimension
-        predictions = np.concatenate(predictions, axis = 3)
+        predictions = np.concatenate(predictions, axis = -1)
         
     x_buffer = int(kernel_buffer[0] / 2)
     y_buffer = int(kernel_buffer[1] / 2)
@@ -180,7 +180,7 @@ def callback_predictions(imageDataset, model, mixer, kernel_shape = [256, 256], 
     for prediction in predictions:
       print('Writing patch ' + str(x) + '...')
       # lets just write probabilities, classes can be calculated post processing if not present already
-      patch = prediction[y_buffer:y_size, x_buffer:x_size, :]
+      patch = prediction[y_buffer:y_size, x_buffer:x_size, 0]
 #      predPatch = np.add(np.argmax(prediction, axis = 2), 1)
 #      probPatch = np.max(prediction, axis = 2)
 #      predPatch = predPatch[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE]

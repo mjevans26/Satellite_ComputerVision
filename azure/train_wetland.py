@@ -85,16 +85,20 @@ log_dir = './logs'
 
 # train_files = glob.glob(os.path.join(args.data_folder, 'training', 'UNET_256_[A-Z]*.gz'))
 # eval_files =  glob.glob(os.path.join(args.data_folder, 'eval', 'UNET_256_[A-Z]*.gz'))
-
+i = 1
 train_files = []
 for root, dirs, files in os.walk(args.train_data):
     for f in files:
-        train_files.append(os.path.join(root, f))
+        if i%2==0:
+            train_files.append(os.path.join(root, f))
+        i+=1
 
 eval_files = []
 for root, dirs, files in os.walk(args.eval_data):
     for f in files:
-        eval_files.append(os.path.join(root, f))
+        if i%2==0:
+            eval_files.append(os.path.join(root, f))
+        i+=1
         
 # train_files = glob.glob(os.path.join(args.train_data, 'UNET_256_[A-Z]*.gz'))
 # eval_files =  glob.glob(os.path.join(args.eval_data, 'UNET_256_[A-Z]*.gz'))
@@ -146,6 +150,9 @@ exp = run.experiment
 ws = exp.workspace
 
 ## BUILD THE MODEL
+# Create a MirroredStrategy.
+strategy = tf.distribute.MirroredStrategy()
+print('Number of devices: {}'.format(strategy.num_replicas_in_sync))
 
 # if a model directory provided we will reload previously trained model and weights
 if args.model_id:
@@ -161,7 +168,11 @@ if args.model_id:
     initial_epoch = 100
 # otherwise build a model from scratch with provided specs
 else:
-    m = model_tools.get_model(depth = DEPTH, optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS, bias = BIAS)
+    # Open a strategy scope.
+    with strategy.scope():
+        METRICS = [tf.keras.metrics.categorical_accuracy, tf.keras.metrics.MeanIoU(num_classes=2, name = 'mean_iou')]
+        OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
+        m = model_tools.get_model(depth = DEPTH, optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS, bias = BIAS)
     initial_epoch = 0
 
 # if test images provided, define an image saving callback
@@ -195,10 +206,12 @@ else:
     callbacks = [checkpoint, tensorboard]
     
 # train the model
+steps_per_epoch = int(TRAIN_SIZE//BATCH)
+print(steps_per_epoch)
 m.fit(
         x = training,
         epochs = EPOCHS,
-        steps_per_epoch = int(TRAIN_SIZE//BATCH),
+        steps_per_epoch = steps_per_epoch,
         validation_data = evaluation,
         callbacks = callbacks#,
         #initial_epoch = initial_epoch
