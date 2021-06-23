@@ -206,7 +206,9 @@ def retrain_model(model_file, checkpoint, eval_data, metric, weights_file = None
         m.load_weights(weights_file)
     # set the initial evaluation metric for saving checkpoints to the previous best value
     evalMetrics = m.evaluate(x = eval_data, verbose = 1)
-    checkpoint.best = evalMetrics[metric]
+    metrics = m.metrics_names
+    index = metrics.index(metric)
+    checkpoint.best = evalMetrics[index]
     # set the learning rate for re-training
     if not lr:
       lr = backend.eval(m.optimizer.learning_rate)

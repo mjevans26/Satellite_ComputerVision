@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
 """
+Created on Tue Jun 22 15:52:39 2021
+
+@author: MEvans
+"""
+
+# -*- coding: utf-8 -*-
+"""
 Created on Wed May  5 12:10:06 2021
 
 @author: MEvans
@@ -95,7 +102,7 @@ for root, dirs, files in os.walk(args.train_data):
         if i%2==0:
             train_files.append(os.path.join(root, f))
         i+=1
-
+i = 1
 eval_files = []
 for root, dirs, files in os.walk(args.eval_data):
     for f in files:
@@ -157,16 +164,28 @@ ws = exp.workspace
 strategy = tf.distribute.MirroredStrategy()
 print('Number of devices: {}'.format(strategy.num_replicas_in_sync))
 
-# Open a strategy scope.
-with strategy.scope():
-    METRICS = {
-    'logits':[tf.keras.metrics.MeanSquaredError(name='mse'), tf.keras.metrics.Precision(name='precision'), tf.keras.metrics.Recall(name='recall')],
-    'classes':[tf.keras.metrics.MeanIoU(num_classes=2, name = 'mean_iou')]
-    }
-#        METRICS = [tf.keras.metrics.categorical_accuracy, tf.keras.metrics.MeanIoU(num_classes=2, name = 'mean_iou')]
-    OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
-    m = model_tools.get_model(depth = DEPTH, optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS, bias = BIAS)
-initial_epoch = 0
+# we will package the 'models' directory within the 'azure' dirrectory submitted with experiment run
+model_dir = Model.get_model_path(args.model_id, _workspace = ws)
+#    model_dir = os.path.join('./models', args.model_id, '1', 'outputs')
+METRICS = {
+        'logits':[tf.keras.metrics.MeanSquaredError(name='mse'), tf.keras.metrics.Precision(name='precision'), tf.keras.metrics.Recall(name='recall')],
+        'classes':[tf.keras.metrics.MeanIoU(num_classes=2, name = 'mean_iou')]
+}
+# load our previously trained model and weights
+model_file = glob.glob(os.path.join(model_dir, '*.h5'))[0]
+weights_file = glob.glob(os.path.join(model_dir, '*.hdf5'))[0]
+m, checkpoint = model_tools.retrain_model(model_file, checkpoint, evaluation, 'mean_iou', weights_file, weight = WEIGHT, lr = LR)
+# TEMPORARILY ADD CODE TO ADD A CLASS OUTPUT TO MODELS
+logits = m.outputs[0]
+logits._name='logits'
+classes = tf.keras.layers.Lambda(lambda x: tf.cast(tf.greater(x, 0.5), dtype = tf.int32), name = 'classes')(logits)
+m2 = tf.keras.models.Model(m.input, [logits, classes])
+m2.compile(
+        optimizer = m.optimizer,
+        loss = m.loss,
+        metrics = METRICS)
+# TODO: make this dynamic
+initial_epoch = 100
 
 # if test images provided, define an image saving callback
 if args.test_data:
@@ -183,7 +202,7 @@ if args.test_data:
     file_writer = tf.summary.create_file_writer(log_dir + '/preds')
 
     def log_pred_image(epoch, logs):
-      out_image = callback_predictions(pred_data, m, mixer)
+      out_image = callback_predictions(pred_data, m2, mixer)
       prob = out_image[:, :, 0]
       figure = plt.figure(figsize=(10, 10))
       plt.imshow(prob)
