@@ -174,16 +174,16 @@ METRICS = {
 # load our previously trained model and weights
 model_file = glob.glob(os.path.join(model_dir, '*.h5'))[0]
 weights_file = glob.glob(os.path.join(model_dir, '*.hdf5'))[0]
-m, checkpoint = model_tools.retrain_model(model_file, checkpoint, evaluation, 'mean_iou', weights_file, weight = WEIGHT, lr = LR)
+m, checkpoint = model_tools.retrain_model(model_file, checkpoint, evaluation, 'classes_mean_iou', weights_file, weight = WEIGHT, lr = LR)
 # TEMPORARILY ADD CODE TO ADD A CLASS OUTPUT TO MODELS
-logits = m.outputs[0]
-logits._name='logits'
-classes = tf.keras.layers.Lambda(lambda x: tf.cast(tf.greater(x, 0.5), dtype = tf.int32), name = 'classes')(logits)
-m2 = tf.keras.models.Model(m.input, [logits, classes])
-m2.compile(
-        optimizer = m.optimizer,
-        loss = m.loss,
-        metrics = METRICS)
+#logits = m.outputs[0]
+#logits._name='logits'
+#classes = tf.keras.layers.Lambda(lambda x: tf.cast(tf.greater(x, 0.5), dtype = tf.int32), name = 'classes')(logits)
+#m2 = tf.keras.models.Model(m.input, [logits, classes])
+#m2.compile(
+#        optimizer = m.optimizer,
+#        loss = m.loss,
+#        metrics = METRICS)
 # TODO: make this dynamic
 initial_epoch = 100
 
@@ -202,7 +202,7 @@ if args.test_data:
     file_writer = tf.summary.create_file_writer(log_dir + '/preds')
 
     def log_pred_image(epoch, logs):
-      out_image = callback_predictions(pred_data, m2, mixer)
+      out_image = callback_predictions(pred_data, m, mixer)
       prob = out_image[:, :, 0]
       figure = plt.figure(figsize=(10, 10))
       plt.imshow(prob)

@@ -47,7 +47,10 @@ BANDS = args.bands
 RESPONSE = args.response
 OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
 
-METRICS = [tf.keras.metrics.categorical_accuracy, tf.keras.metrics.MeanIoU(num_classes=2, name = 'mean_iou')]
+METRICS = {
+        'logits':[tf.keras.metrics.MeanSquaredError(name='mse'), tf.keras.metrics.Precision(name='precision'), tf.keras.metrics.Recall(name='recall')],
+        'classes':[tf.keras.metrics.MeanIoU(num_classes=2, name = 'mean_iou')]
+        }
 
 FEATURES = BANDS + [RESPONSE]
 
