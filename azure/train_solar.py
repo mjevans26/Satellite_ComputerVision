@@ -117,7 +117,7 @@ date
 # define a checkpoint callback to save best models during training
 checkpoint = tf.keras.callbacks.ModelCheckpoint(
     os.path.join(out_dir, 'best_weights_' + date + '.hdf5'),
-    monitor='val_mean_iou',
+    monitor='val_classes_mean_iou',
     verbose=1,
     save_best_only=True,
     mode='max'
@@ -142,7 +142,7 @@ if args.model_id:
     # load our previously trained model and weights
     model_file = glob.glob(os.path.join(model_dir, '*.h5'))[0]
     weights_file = glob.glob(os.path.join(model_dir, '*.hdf5'))[0]
-    m, checkpoint = model_tools.retrain_model(model_file, checkpoint, evaluation, 2, weights_file, weight = WEIGHT, lr = LR)
+    m, checkpoint = model_tools.retrain_model(model_file, checkpoint, evaluation, 'classes_mean_iou', weights_file, weight = WEIGHT, lr = LR)
     # TODO: make this dynamic
     initial_epoch = 100
 # otherwise build a model from scratch with provided specs
