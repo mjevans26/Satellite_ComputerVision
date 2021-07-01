@@ -74,7 +74,6 @@ def doExport(image, features, scale, bucket, pred_base, pred_path, region, kerne
 def makePredDataset(file_list, features, kernel_shape = [256, 256], kernel_buffer = [128, 128], axes = [2], splits = None, moments = None, one_hot = None, **kwargs):
     """ Make a TFRecord Dataset that can be used for predictions
     Parameters:
-        bucket (GCS bucket): google cloud storage bucket object
         file_list: list of complete pathnames for prediction data files
         pred_path (str): path to .tfrecord files
         pred_image_base (str): pattern matching basename of file(s)
