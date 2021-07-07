@@ -287,7 +287,7 @@ def make_array_predictions(imageDataset, model, jsonFile, kernel_shape = [256, 2
 
     return rows
 
-def write_tfrecord_predictions(imageDataset, pred_path, out_image_base, kernel_shape = [256, 256], kernel_buffer = [128,128]):
+def write_tfrecord_predictions(imageDataset, model, pred_path, out_image_base, kernel_shape = [256, 256], kernel_buffer = [128,128]):
     """Generate predictions and save as TFRecords to Cloud Storage
     Parameters:
       imageDataset (tf.Dataset): data on which to run predictions
@@ -301,7 +301,7 @@ def write_tfrecord_predictions(imageDataset, pred_path, out_image_base, kernel_s
     """
     # Perform inference.
     print('Running predictions...')
-    predictions = m.predict(imageDataset, steps=None, verbose=1)
+    predictions = model.predict(imageDataset, steps=None, verbose=1)
     # print(predictions[0])
     
     # some models will outputs probs and classes as a list
@@ -361,12 +361,39 @@ def write_tfrecord_predictions(imageDataset, pred_path, out_image_base, kernel_s
 
     writer.close()
 
+def write_geotiff_prediction(image, jsonFile, aoi):
+  with open(jsonFile,) as file:
+    mixer = json.load(file)
+          
+    transform = mixer['projection']['affine']['doubleMatrix']
+    crs = mixer['projection']['crs']
+    ppr = mixer['patchesPerRow']
+    tp = mixer['totalPatches']
+    rows = int(tp/ppr)
+
+  if image.ndim < 3:
+      image = np.expand_dims(image, axis = -1)
+      
+  affine = rio.Affine(transform[0], transform[1], transform[2], transform[3], transform[4], transform[5])
+
+  with rio.open(
+      f'{aoi}.tif',
+      'w',
+      driver = 'GTiff',
+      width = image.shape[1],
+      height = image.shape[0],
+      count = image.shape[2],
+      dtype = image.dtype,
+      crs = crs,
+      transform = affine) as dst:
+      dst.write(np.transpose(image, (2,0,1)))
+      
 # TODO: re-calculate n and write files not strictly based on rows
-def write_geotiff_predictions(file_list, bucket, json_file, features, one_hot, kernel_shape = [256, 256], kernel_buffer = [128,128], export = True):
+def write_geotiff_predictions(file_list, model, jsonFile, features, outImgBase, outImgPath, one_hot = None, kernel_shape = [256, 256], kernel_buffer = [128,128], export = True):
   """Write a numpy array as a GeoTIFF to Google Cloud
   Parameters:
-    pred_path (str): google cloud directory containg prediction files
-    pred_image_base (str): pattern matching file basename
+    outImgPath (str): directory in which to write predictions
+    outImgBase (str): file basename
     kernel_shape (tpl): [y, x] size of image patch in pixels
     kernel_buffer (tpl): x and y padding around patches
     bucket (gcs bucket): google-cloud-storage bucket object
@@ -382,16 +409,9 @@ def write_geotiff_predictions(file_list, bucket, json_file, features, one_hot, k
   x_size = x_buffer + kernel_shape[1]
   y_size = y_buffer + kernel_shape[0]
 
-  # Load the contents of the mixer file to a JSON object.
-  blob = bucket.get_blob(json_file)
-  jsonFile = blob.download_as_text()
-  jsonText = jsonFile.decode('utf-8')#23Mar21 update to use google-cloud-storage library
-  
-#  jsonFile = join(pred_path, pred_image_base + '*.json')
-#  jsonText = !gsutil cat {jsonFile}
-  
-  # Get a single string w/ newlines from the IPython.utils.text.SList
-  mixer = json.loads(jsonText)
+  with open(jsonFile,) as file:
+      mixer = json.load(file)
+        
   transform = mixer['projection']['affine']['doubleMatrix']
   crs = mixer['projection']['crs']
   ppr = mixer['patchesPerRow']
@@ -405,7 +425,7 @@ def write_geotiff_predictions(file_list, bucket, json_file, features, one_hot, k
   affine = rio.Affine(transform[0], transform[1], transform[2], transform[3], transform[4], transform[5])
 
   # get our prediction data and make predictions one chunk at a time
-  data = makePredDataset(file_list, kernel_shape, kernel_buffer, features, one_hot).unbatch().batch(n)
+  data = makePredDataset(file_list, features, kernel_shape, kernel_buffer, one_hot).unbatch().batch(n)
   iterator = iter(data)
   # initial row offset for affine window is 0
   row_offset = 0
@@ -413,7 +433,7 @@ def write_geotiff_predictions(file_list, bucket, json_file, features, one_hot, k
   counter = 0
   for row in range(rows):
     # predict a row of patches
-    predictions = m.predict(iterator.next(), batch_size = 1, steps = n)
+    predictions = model.predict(iterator.next(), batch_size = 1, steps = n)
     # trim the buffer from predictions
     trimmed = [p[y_buffer: y_size, x_buffer:x_size, :] for p in predictions]
     patch = np.concatenate(trimmed, axis = 1)
@@ -438,8 +458,8 @@ def write_geotiff_predictions(file_list, bucket, json_file, features, one_hot, k
       C = image.shape[2]
       print('current image shape', image.shape)
       # Set our output filenames
-      out_geotiff = pred_image_base + '{:05d}.tif'.format(row)
-      out_image_file = join(pred_path, 'outputs', 'geotiff', out_geotiff)
+      out_geotiff = outImgBase + '{:05d}.tif'.format(row)
+      out_image_file = join(outImgPath, 'outputs', 'geotiff', out_geotiff)
       print(out_image_file)
 
       # create affine matrix for the current slice
@@ -496,24 +516,21 @@ def write_geotiff_predictions(file_list, bucket, json_file, features, one_hot, k
 #  out_image_asset = join(user_folder, out_image_base)
 #  !earthengine upload image --asset_id={out_image_asset} {out_image_files} {jsonFile[0]}
   
-def get_img_bounds(img, bucket, jsonFile, dst_crs = None):
+def get_img_bounds(img, jsonFile, dst_crs = None):
       """Get the projected top left and bottom right coordinates of an image
       Parameters:
       img (ndarray): image to generate bounding coordinates for
-      bucket (gcs bucket): google-cloud-storage bucket object
       jsonFile (str): path to json file defining crs and image size
       dst_crs (str): epsg code for output crs
       Return:
       tpl: [[lat min, lon min],[lat max, lon max]]
       """
-      jsonFile = '/'.join(jsonFile.split(sep = '/')[3:])
-      blob = bucket.get_blob(jsonFile)
-      jsonFile = blob.download_as_string()
-      jsonText = jsonFile.decode('utf-8')
-    #  jsonText = !gsutil cat {jsonFile}
       # Get a single string w/ newlines from the IPython.utils.text.SList
-      mixer = json.loads(jsonText)
+      with open(jsonFile,) as f:
+        mixer = json.load(f)
+      # mixer = json.loads(jsonText.nlstr)
       transform = mixer['projection']['affine']['doubleMatrix']
+      print(transform)
       src_crs = CRS.from_string(mixer['projection']['crs'])
       print(src_crs)
       affine = rio.Affine(transform[0], transform[1], transform[2], transform[3], transform[4], transform[5])
