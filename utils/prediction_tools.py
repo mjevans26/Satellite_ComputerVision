@@ -389,15 +389,18 @@ def write_geotiff_prediction(image, jsonFile, aoi):
       dst.write(np.transpose(image, (2,0,1)))
       
 # TODO: re-calculate n and write files not strictly based on rows
-def write_geotiff_predictions(file_list, model, jsonFile, features, outImgBase, outImgPath, one_hot = None, kernel_shape = [256, 256], kernel_buffer = [128,128], export = True):
+def write_geotiff_predictions(fileList, model, jsonFile, features, n, outImgBase, outImgPath, one_hot = None, kernel_shape = [256, 256], kernel_buffer = [128,128], export = True):
   """Write a numpy array as a GeoTIFF to Google Cloud
   Parameters:
+    fileList (list): list of files containing prediction data
+    model (keras.Model): loaded model used to make preditions
+    jsonFile (str): filename of json mixer file
+    features (list): list of incoming feature names in prediction data
+    n (int): number of rows to write per file
     outImgPath (str): directory in which to write predictions
     outImgBase (str): file basename
     kernel_shape (tpl): [y, x] size of image patch in pixels
     kernel_buffer (tpl): x and y padding around patches
-    bucket (gcs bucket): google-cloud-storage bucket object
-    features (list): list of incoming feature names
     one_hot (dict): dictionary with key, value pairs of features to be cast to one hot and desired depth
     export (bool): export geotiffs to cloud storage upon writing?
   Return:
@@ -417,15 +420,14 @@ def write_geotiff_predictions(file_list, model, jsonFile, features, outImgBase, 
   ppr = mixer['patchesPerRow']
   tp = mixer['totalPatches']
   rows = int(tp/ppr)
-  
-  # set ~number of patches per written file
-  n = 500
+  print('rows', rows)
+  print('ppr', ppr)
   
   # define a rasterio affine transformation matrix based on the json mixer crs
   affine = rio.Affine(transform[0], transform[1], transform[2], transform[3], transform[4], transform[5])
 
   # get our prediction data and make predictions one chunk at a time
-  data = makePredDataset(file_list, features, kernel_shape, kernel_buffer, one_hot).unbatch().batch(n)
+  data = makePredDataset(fileList, features, kernel_shape, kernel_buffer, one_hot).unbatch().batch(ppr)
   iterator = iter(data)
   # initial row offset for affine window is 0
   row_offset = 0
@@ -433,11 +435,12 @@ def write_geotiff_predictions(file_list, model, jsonFile, features, outImgBase, 
   counter = 0
   for row in range(rows):
     # predict a row of patches
-    predictions = model.predict(iterator.next(), batch_size = 1, steps = n)
+    predictions = model.predict(iterator.next(), batch_size = 1, steps = ppr)
+    print('length of predictions', len(predictions))
     # trim the buffer from predictions
     trimmed = [p[y_buffer: y_size, x_buffer:x_size, :] for p in predictions]
     patch = np.concatenate(trimmed, axis = 1)
-
+    print('patch shape', patch.shape)
     # for the first row we set our image equal to the row patch, define the height and return to top of loop
     if counter == 0:
       image = patch
@@ -459,7 +462,7 @@ def write_geotiff_predictions(file_list, model, jsonFile, features, outImgBase, 
       print('current image shape', image.shape)
       # Set our output filenames
       out_geotiff = outImgBase + '{:05d}.tif'.format(row)
-      out_image_file = join(outImgPath, 'outputs', 'geotiff', out_geotiff)
+      out_image_file = join(outImgPath, out_geotiff)
       print(out_image_file)
 
       # create affine matrix for the current slice
@@ -471,8 +474,8 @@ def write_geotiff_predictions(file_list, model, jsonFile, features, outImgBase, 
         out_geotiff,
         'w',
         driver = 'GTiff',
-        width = image.shape[1],
-        height = image.shape[0],
+        width = W,
+        height = H,
         count = C,
         dtype = image.dtype,
         crs = crs,
@@ -485,14 +488,14 @@ def write_geotiff_predictions(file_list, model, jsonFile, features, outImgBase, 
       #reset counter
       counter = 0
 
-      if export:
-        # create a cloud optimized geotiff
-        # !gdal_translate {out_geotiff} {out_geotiff} -co TILED=YES -co COPY_SRC_OVERVIEWS=YES -co COMPRESS=DEFLATE
-        # move to GCS
-        blob = bucket.blob(out_image_file)
-        blob.upload_from_filename(out_geotiff)
-#        !gsutil mv {out_geotiff} {out_image_file}
-        print('Moved', out_geotiff, 'to cloud')
+#      if export:
+#        # create a cloud optimized geotiff
+#        # !gdal_translate {out_geotiff} {out_geotiff} -co TILED=YES -co COPY_SRC_OVERVIEWS=YES -co COMPRESS=DEFLATE
+#        # move to GCS
+#        blob = bucket.blob(out_image_file)
+#        blob.upload_from_filename(out_geotiff)
+##        !gsutil mv {out_geotiff} {out_image_file}
+#        print('Moved', out_geotiff, 'to cloud')
 
 #def ingest_predictions(pred_path, out_image_base, user_folder):
 #  """
