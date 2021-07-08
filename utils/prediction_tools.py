@@ -427,18 +427,18 @@ def write_geotiff_predictions(fileList, model, jsonFile, features, n, outImgBase
   affine = rio.Affine(transform[0], transform[1], transform[2], transform[3], transform[4], transform[5])
 
   # get our prediction data and make predictions one chunk at a time
-  data = makePredDataset(fileList, features, kernel_shape, kernel_buffer, one_hot).unbatch().batch(ppr)
+  data = makePredDataset(fileList, features, kernel_shape, kernel_buffer, one_hot = one_hot).unbatch().batch(ppr)
   iterator = iter(data)
   # initial row offset for affine window is 0
   row_offset = 0
   # create counter for number of rows in current file
   counter = 0
   for row in range(rows):
-    # predict a row of patches
+    # predict a row of patches - this comes out as a list...?
     predictions = model.predict(iterator.next(), batch_size = 1, steps = ppr)
-    print('length of predictions', len(predictions))
+    print('shape of predictions', predictions[0].shape)
     # trim the buffer from predictions
-    trimmed = [p[y_buffer: y_size, x_buffer:x_size, :] for p in predictions]
+    trimmed = predictions[0][:, y_buffer: y_size, x_buffer:x_size, 0]
     patch = np.concatenate(trimmed, axis = 1)
     print('patch shape', patch.shape)
     # for the first row we set our image equal to the row patch, define the height and return to top of loop
@@ -456,10 +456,12 @@ def write_geotiff_predictions(fileList, model, jsonFile, features, n, outImgBase
 
     # for every nth row, or the last one
     if counter == n or row == rows-1:
-      H = image.shape[0]
-      W = image.shape[1]
-      C = image.shape[2]
+      image = np.expand_dims(image, axis = 0)
       print('current image shape', image.shape)
+      H = image.shape[1]
+      W = image.shape[2]
+      C = image.shape[0]
+      
       # Set our output filenames
       out_geotiff = outImgBase + '{:05d}.tif'.format(row)
       out_image_file = join(outImgPath, out_geotiff)
@@ -480,7 +482,9 @@ def write_geotiff_predictions(fileList, model, jsonFile, features, n, outImgBase
         dtype = image.dtype,
         crs = crs,
         transform = out_affine) as dst:
-        dst.write(np.transpose(image, (2,0,1)))
+          # for multi-channel images, rasterio takes channels first
+#        dst.write(np.transpose(image, (2,0,1)))
+        dst.write(image)
 
       print('Successfully wrote geotiff to local storage')
       row_offset += H
