@@ -473,7 +473,7 @@ def write_geotiff_predictions(fileList, model, jsonFile, features, n, outImgBase
       # set our counter equal to the most recently written row
 
       with rio.open(
-        out_geotiff,
+        out_image_file,
         'w',
         driver = 'GTiff',
         width = W,
