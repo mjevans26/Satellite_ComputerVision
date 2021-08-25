@@ -5,7 +5,7 @@ Created on Fri Dec  4 19:24:42 2020
 @author: MEvans
 """
 from os.path import join
-#import ee
+import ee
 import json
 import numpy as np
 import tensorflow as tf
