@@ -202,8 +202,12 @@ def to_tuple(inputs, features, response, axes = [2], splits = None, one_hot = No
 #    moments = kwargs.get('moments')
     
 #    inputsList = [inputs.get(key) for key in features + [response]]
-    
-    res = tf.expand_dims(inputs.get(response), axis = 2)
+    if type(response) == dict:
+        depth = list(response.values())[0]
+        key = list(response.keys())[0]
+        res = tf.squeeze(tf.one_hot(tf.subtract(tf.cast(inputs.get(key), tf.uint8), 1), depth = depth))
+    else:
+        res = tf.expand_dims(inputs.get(response), axis = 2)
     
     # stack the augmented bands, optional one-hot tensors, and response variable
     if one_hot:

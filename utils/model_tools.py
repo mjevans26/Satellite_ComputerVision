@@ -14,6 +14,58 @@ from tensorflow.python.keras import optimizers
 from tensorflow.python.keras import backend
 import numpy as np
 
+def gen_dice(y_true, y_pred, eps=1e-6, global_weights = None):
+
+    """both tensors are [b, h, w, classes] and y_pred is in logit form
+
+		https://stackoverflow.com/questions/49012025/generalized-dice-loss-for-multi-class-segmentation-keras-implementation
+
+		This implementation will calculate class weights per batch - could alternatively substitute contants based on overall
+		training dataset proportions
+		
+		Parameters:
+			y_true (array): 4-d tensor of one-hot labels
+			y_pred (array): 4-d tensor of class predictions
+			eps (float): fixed weight to prevent division by 
+            global_weights (list): list of per-class weights
+		"""
+
+    # [b, h, w, classes]
+    # pred_tensor = tf.nn.softmax(y_pred)
+    pred_tensor = y_pred
+    y_true_shape = tf.shape(y_true)
+
+    # [b, h*w, classes]
+    y_true = tf.reshape(y_true, [-1, y_true_shape[1]*y_true_shape[2], y_true_shape[3]])
+    y_pred = tf.reshape(pred_tensor, [-1, y_true_shape[1]*y_true_shape[2], y_true_shape[3]])
+
+
+    # we can use the batchwise weights or global weights - select one of them
+    # -----------------------------------------------------------------------
+    if global_weights:
+    # global weights
+    # --------------
+        weights = tf.constant(global_weights, shape = (1, 13), dtype = tf.float32)
+    else:
+    # batchwise weight
+    # ----------------
+    # to use batch-wise weights, count how many of each class are present in each image, 
+        counts = tf.reduce_sum(y_true, axis=1)
+        weights = 1. / (counts ** 2)
+        # if there are zero, then assign them a fixed weight of eps
+        weights = tf.where(tf.math.is_finite(weights), weights, eps)        
+    
+    #[b, classes]
+    multed = tf.reduce_sum(y_true * y_pred, axis=1)
+    summed = tf.reduce_sum(y_true + y_pred, axis=1)
+
+    # [b]
+    numerators = tf.reduce_sum(weights*multed, axis=-1)
+    denom = tf.reduce_sum(weights*summed, axis=-1)
+    dices = 1. - 2. * numerators / denom
+    dices = tf.where(tf.math.is_finite(dices), dices, tf.zeros_like(dices))
+    return tf.reduce_mean(dices)
+
 def weighted_bce(y_true, y_pred, weight):
     """
     Compute the weighted binary cross entropy between predictions and observations
