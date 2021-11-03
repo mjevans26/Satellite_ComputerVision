@@ -50,8 +50,10 @@ LR = args.learning_rate
 BANDS = args.bands
 RESPONSE = args.response
 
-if RESPONSE in  ONE_HOT.keys():
-    RESPONSE = ONE_HOT
+# if the response is one-hot convert it to a dictionary
+# this will trigger correct processing by processing.to_tuple
+if RESPONSE in ONE_HOT.keys():
+    RESPONSE = {key:ONE_HOT[key] for key in [RESPONSE]}
     
 OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
 DEPTH = len(BANDS)
