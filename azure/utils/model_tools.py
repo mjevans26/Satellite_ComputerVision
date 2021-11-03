@@ -79,22 +79,22 @@ def weighted_bce(y_true, y_pred, weight):
     bce = tf.nn.weighted_cross_entropy_with_logits(labels = y_true, logits = y_pred, pos_weight = weight)
     return tf.reduce_mean(bce)
 
-def dice_coef(y_true, y_pred, smooth=1, weight=0.5):
-    """
-    https://github.com/daifeng2016/End-to-end-CD-for-VHR-satellite-image
-    """
-    # y_true = y_true[:, :, :, -1]  # y_true[:, :, :, :-1]=y_true[:, :, :, -1] if dim(3)=1 等效于[8,256,256,1]==>[8,256,256]
-    # y_pred = y_pred[:, :, :, -1]
-    intersection = K.sum(y_true * y_pred)
-    union = K.sum(y_true) + weight * K.sum(y_pred)
-    # K.mean((2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth))
-    return ((2. * intersection + smooth) / (union + smooth))  # not working better using mean
+# def dice_coef(y_true, y_pred, smooth=1, weight=0.5):
+#     """
+#     https://github.com/daifeng2016/End-to-end-CD-for-VHR-satellite-image
+#     """
+#     # y_true = y_true[:, :, :, -1]  # y_true[:, :, :, :-1]=y_true[:, :, :, -1] if dim(3)=1 等效于[8,256,256,1]==>[8,256,256]
+#     # y_pred = y_pred[:, :, :, -1]
+#     intersection = K.sum(y_true * y_pred)
+#     union = K.sum(y_true) + weight * K.sum(y_pred)
+#     # K.mean((2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth))
+#     return ((2. * intersection + smooth) / (union + smooth))  # not working better using mean
 
-def dice_coef_loss(y_true, y_pred):
-    """
-    https://github.com/daifeng2016/End-to-end-CD-for-VHR-satellite-image
-    """
-    return 1 - dice_coef(y_true, y_pred)
+# def dice_coef_loss(y_true, y_pred):
+#     """
+#     https://github.com/daifeng2016/End-to-end-CD-for-VHR-satellite-image
+#     """
+#     return 1 - dice_coef(y_true, y_pred)
 
 def iou_loss(true, pred):
     """
@@ -134,7 +134,7 @@ def decoder_block(input_tensor, concat_tensor, num_filters):
 	decoder = layers.Activation('relu')(decoder)
 	return decoder
 
-def get_model(depth, optim, loss, mets, bias = None):
+def get_binary_model(depth, optim, loss, mets, bias = None):
     """
     Build a U-Net model
     Parameters:
@@ -168,6 +168,48 @@ def get_model(depth, optim, loss, mets, bias = None):
     model.compile(
             optimizer=optim, 
             loss = {'logits': loss},
+            #loss=losses.get(LOSS),
+            metrics=mets)
+
+    return model
+
+def get_multiclass_model(depth, nclasses, optim, loss, mets, bias = None):
+    """
+    Build a U-Net model
+    Parameters:
+        depth (int): number of training features (i.e. bands)
+        nclasses (int): number of output classes
+        optim (tf.keras.optimizer): keras optimizer
+        loss (tf.keras.loss): keras or custom loss function
+        mets (dict<tf.keras.metrics): dictionary of metrics for logits and classes. elements are lists of keras metrics
+    Returns:
+        tf.keras.model: compiled U-Net model
+    """
+    if bias is not None:
+        bias = tf.keras.initializers.Constant(bias)
+        
+    inputs = layers.Input(shape=[None, None, depth]) # 256
+    encoder0_pool, encoder0 = encoder_block(inputs, 32) # 128
+    encoder1_pool, encoder1 = encoder_block(encoder0_pool, 64) # 64
+    encoder2_pool, encoder2 = encoder_block(encoder1_pool, 128) # 32
+    encoder3_pool, encoder3 = encoder_block(encoder2_pool, 256) # 16
+    encoder4_pool, encoder4 = encoder_block(encoder3_pool, 512) # 8
+    center = conv_block(encoder4_pool, 1024) # center
+    decoder4 = decoder_block(center, encoder4, 512) # 16
+    decoder3 = decoder_block(decoder4, encoder3, 256) # 32
+    decoder2 = decoder_block(decoder3, encoder2, 128) # 64
+    decoder1 = decoder_block(decoder2, encoder1, 64) # 128
+    decoder0 = decoder_block(decoder1, encoder0, 32) # 256
+    outputs = layers.Conv2D(nclasses, (1,1), activation = 'softmax', name = 'softmax')(decoder0)
+    # logits = layers.Conv2D(1, (1, 1), activation='sigmoid', bias_initializer = bias, name = 'logits')(decoder0)
+    # logits is a probability and classes is binary. in solar, "tf.cast(tf.greater(x, 0.9)" was used  to avoid too many false positives
+    # classes = layers.Lambda(lambda x: tf.cast(tf.greater(x, 0.5), dtype = tf.int32), name = 'classes')(logits)
+    # model = models.Model(inputs=[inputs], outputs=[logits, classes])
+    model = models.Model(inputs = [inputs], outputs = [outputs])
+
+    model.compile(
+            optimizer=optim, 
+            loss = {'softmax': loss},
             #loss=losses.get(LOSS),
             metrics=mets)
 

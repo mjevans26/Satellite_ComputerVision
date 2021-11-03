@@ -26,13 +26,14 @@ parser.add_argument('--eval_data', type = str, required = True, help = 'Evaluati
 parser.add_argument('--test_data', type = str, default = None, help = 'directory containing test image(s) and mixer')
 parser.add_argument('--model_id', type = str, required = False, default = None, help = 'model id for continued training')
 parser.add_argument('-lr', '--learning_rate', type = float, default = 0.001, help = 'Initial learning rate')
-parser.add_argument('-w', '--weight', type = float, default = 1.0, help = 'Positive sample weight for iou, bce, etc.')
+parser.add_argument('-w', '--weight', type = float, default = None, help = 'Positive sample weight for iou, bce, etc.')
 parser.add_argument('--bias', type = float, default = None, help = 'bias value for keras output layer initializer')
 parser.add_argument('-e', '--epochs', type = int, default = 10, help = 'Number of epochs to train the model for')
 parser.add_argument('-b', '--batch', type = int, default = 16, help = 'Training batch size')
 parser.add_argument('--size', type = int, default = 3000, help = 'Size of training dataset')
 parser.add_argument('--kernel_size', type = int, default = 256, dest = 'kernel_size', help = 'Size in pixels of incoming patches')
 parser.add_argument('--response', type = str, required = True, default = 'landcover', help = 'Name of the response variable in tfrecords')
+parser.add_argument('--nclasses', type = int, required = True, default = 10, help = 'Number of response classes')
 parser.add_argument('--bands', type = str, nargs = '+', required = False, default = ['B3_summer', 'B3_fall', 'B3_spring', 'B4_summer', 'B4_fall', 'B4_spring', 'B5_summer', 'B5_fall', 'B5_spring', 'B6_summer', 'B6_fall', 'B6_spring', 'B8_summer', 'B8_fall', 'B8_spring', 'B11_summer', 'B11_fall', 'B11_spring', 'B12_summer', 'B12_fall', 'B12_spring', 'R', 'G', 'B', 'N', 'lidar_intensity', 'geomorphons'])
 parser.add_argument('--splits', type = int, nargs = '+', required = False, default = None )
 parser.add_argument('--one_hot_levels', type = int, nargs = '+', required = False, default = [10])
@@ -49,6 +50,7 @@ WEIGHT = args.weight
 LR = args.learning_rate
 BANDS = args.bands
 RESPONSE = args.response
+NCLASSES = args.nclasses
 
 # if the response is one-hot convert it to a dictionary
 # this will trigger correct processing by processing.to_tuple
@@ -164,7 +166,7 @@ with strategy.scope():
     }
 #        METRICS = [tf.keras.metrics.categorical_accuracy, tf.keras.metrics.MeanIoU(num_classes=2, name = 'mean_iou')]
     OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
-    m = model_tools.get_model(depth = DEPTH, optim = OPTIMIZER, loss = get_gen_dice, mets = METRICS, bias = BIAS)
+    m = model_tools.get_multiclass_model(depth = DEPTH, nclasses = NCLASSES, optim = OPTIMIZER, loss = get_gen_dice, mets = METRICS, bias = BIAS)
 initial_epoch = 0
 
 # if test images provided, define an image saving callback
