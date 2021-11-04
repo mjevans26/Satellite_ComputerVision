@@ -34,7 +34,7 @@ parser.add_argument('--size', type = int, default = 3000, help = 'Size of traini
 parser.add_argument('--kernel_size', type = int, default = 256, dest = 'kernel_size', help = 'Size in pixels of incoming patches')
 parser.add_argument('--response', type = str, required = True, default = 'landcover', help = 'Name of the response variable in tfrecords')
 parser.add_argument('--nclasses', type = int, required = True, default = 10, help = 'Number of response classes')
-parser.add_argument('--bands', type = str, nargs = '+', required = False, default = ['B3_summer', 'B3_fall', 'B3_spring', 'B4_summer', 'B4_fall', 'B4_spring', 'B5_summer', 'B5_fall', 'B5_spring', 'B6_summer', 'B6_fall', 'B6_spring', 'B8_summer', 'B8_fall', 'B8_spring', 'B11_summer', 'B11_fall', 'B11_spring', 'B12_summer', 'B12_fall', 'B12_spring', 'R', 'G', 'B', 'N', 'lidar_intensity', 'geomorphons'])
+parser.add_argument('--bands', type = str, nargs = '+', required = False, default = ['B2_spring', 'B2_summer', 'B2_fall', 'B3_spring', 'B3_summer', 'B3_fall', 'B4_spring', 'B4_summer', 'B4_fall', 'B5_spring', 'B5_summer', 'B5_fall', 'B6_spring', 'B6_summer', 'B6_fall', 'B7_spring', 'B7_summer', 'B7_fall', 'B8_spring', 'B8_summer', 'B8_fall', 'B8A_spring', 'B8A_summer', 'B8A_fall', 'B11_spring', 'B11_summer', 'B11_fall', 'B12_spring', 'B12_summer', 'B12_fall', 'R', 'G', 'B', 'N', 'landcover'])
 parser.add_argument('--splits', type = int, nargs = '+', required = False, default = None )
 parser.add_argument('--one_hot_levels', type = int, nargs = '+', required = False, default = [10])
 parser.add_argument('--one_hot_names', type = str, nargs = '+', required = False, default = ['landcover'])
@@ -52,6 +52,9 @@ BANDS = args.bands
 RESPONSE = args.response
 NCLASSES = args.nclasses
 
+
+FEATURES = BANDS + [RESPONSE]
+
 # if the response is one-hot convert it to a dictionary
 # this will trigger correct processing by processing.to_tuple
 if RESPONSE in ONE_HOT.keys():
@@ -65,8 +68,6 @@ METRICS = {
         'logits':[tf.keras.metrics.MeanSquaredError(name='mse'), tf.keras.metrics.Precision(name='precision'), tf.keras.metrics.Recall(name='recall')],
         'classes':[tf.keras.metrics.MeanIoU(num_classes=2, name = 'mean_iou')]
         }
-
-FEATURES = BANDS + [RESPONSE]
 
 # round the training data size up to nearest 100 to define buffer
 BUFFER = math.ceil(args.size/100)*100
