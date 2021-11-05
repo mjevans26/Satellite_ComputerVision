@@ -67,10 +67,8 @@ OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
 DEPTH = len(BANDS)
 print(BANDS)
 
-METRICS = {
-        'logits':[tf.keras.metrics.MeanSquaredError(name='mse'), tf.keras.metrics.Precision(name='precision'), tf.keras.metrics.Recall(name='recall')],
-        'classes':[tf.keras.metrics.MeanIoU(num_classes=2, name = 'mean_iou')]
-        }
+METRICS = METRICS = [tf.keras.metrics.categorical_accuracy,
+                     tf.keras.metrics.MeanIoU(num_classes=list(RESPONSE.values()[0]), name = 'mean_iou')]
 
 # round the training data size up to nearest 100 to define buffer
 BUFFER = math.ceil(args.size/100)*100
@@ -164,11 +162,9 @@ print('Number of devices: {}'.format(strategy.num_replicas_in_sync))
 
 # Open a strategy scope.
 with strategy.scope():
-    METRICS = {
-    'logits':[tf.keras.metrics.MeanSquaredError(name='mse'), tf.keras.metrics.Precision(name='precision'), tf.keras.metrics.Recall(name='recall')],
-    'classes':[tf.keras.metrics.MeanIoU(num_classes=2, name = 'mean_iou')]
-    }
-#        METRICS = [tf.keras.metrics.categorical_accuracy, tf.keras.metrics.MeanIoU(num_classes=2, name = 'mean_iou')]
+    METRICS = METRICS = [tf.keras.metrics.categorical_accuracy,
+                         tf.keras.metrics.MeanIoU(num_classes=list(RESPONSE.values()[0]), name = 'mean_iou')]
+
     OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
     m = model_tools.get_multiclass_model(depth = DEPTH, nclasses = NCLASSES, optim = OPTIMIZER, loss = get_gen_dice, mets = METRICS, bias = BIAS)
 initial_epoch = 0
