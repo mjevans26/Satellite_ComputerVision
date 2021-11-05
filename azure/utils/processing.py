@@ -238,8 +238,8 @@ def to_tuple(inputs, features, response, axes = [2], splits = None, one_hot = No
     # perform morphological augmentation
     stacked = aug_img(stacked)
     
-    feats = stacked[:, :, :-1]
-    labels = stacked[:, :, -1:]
+    feats = stacked[:, :, :-len(res)]
+    labels = stacked[:, :, -len(res):]
     labels = tf.where(tf.greater(labels, 1.0), 1.0, labels)
     return feats, labels
 #    stacked = tf.stack(inputsList, axis=0)
