@@ -60,6 +60,8 @@ FEATURES = BANDS + [RESPONSE]
 if RESPONSE in ONE_HOT.keys():
     # RESPONSE = {key:ONE_HOT[key] for key in [RESPONSE]}
     RESPONSE = {RESPONSE:ONE_HOT.pop(RESPONSE)}
+    if len(ONE_HOT) < 1:
+        ONE_HOT = None
     
 OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
 DEPTH = len(BANDS)
