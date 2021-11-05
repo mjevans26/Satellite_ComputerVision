@@ -58,7 +58,8 @@ FEATURES = BANDS + [RESPONSE]
 # if the response is one-hot convert it to a dictionary
 # this will trigger correct processing by processing.to_tuple
 if RESPONSE in ONE_HOT.keys():
-    RESPONSE = {key:ONE_HOT[key] for key in [RESPONSE]}
+    # RESPONSE = {key:ONE_HOT[key] for key in [RESPONSE]}
+    RESPONSE = {RESPONSE:ONE_HOT.pop(RESPONSE)}
     
 OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
 DEPTH = len(BANDS)
