@@ -12,8 +12,8 @@ data/
 *.so
 
 # Azure stuff
-.amlignore
-.amltmp
+*.amlignore
+*.amltmp
 
 # Distribution / packaging
 .Python
