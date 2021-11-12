@@ -229,16 +229,17 @@ def make_confusion_matrix_data(tpl, model, multiclass = False):
     tuple: 1D label and prediction arrays from the input datset
   """
   preds = model.predict(tpl[0], verbose = 1)
-  preds = preds[:,:,0]
+  preds = preds[0,:,:,:]
   labs = tpl[1]
 
   if multiclass:
-    labs = np.argmax(labs, axis = -1)
-    preds = np.argmax(preds, axis = -1)
-
-  predictions = np.squeeze(np.greater(preds[0], 0.5)).flatten()
-  
-  labels = np.squeeze(labs).flatten()
+    labels = np.argmax(labs, axis = -1).flatten()
+    predictions = np.argmax(preds, axis = -1).flatten()
+    
+  else:
+    predictions = np.squeeze(np.greater(preds[0], 0.5)).flatten()
+    labels = np.squeeze(labs).flatten()
+    
   return labels, predictions
 
 def make_confusion_matrix(dataset, model, multiclass = False):

@@ -55,9 +55,6 @@ print(BANDS)
 METRICS = METRICS = [tf.keras.metrics.categorical_accuracy,
                      tf.keras.metrics.MeanIoU(num_classes=list(RESPONSE.values())[0], name = 'mean_iou')]
 
-# round the training data size up to nearest 100 to define buffer
-BUFFER = math.ceil(args.size/100)*100
-
 # Specify the size and shape of patches expected by the model.
 KERNEL_SIZE = args.kernel_size
 KERNEL_SHAPE = [KERNEL_SIZE, KERNEL_SIZE]
@@ -98,8 +95,8 @@ training = processing.get_training_dataset(
         ftDict = FEATURES_DICT,
         features = BANDS,
         response = RESPONSE,
-        buff = BUFFER,
-        batch = BATCH,
+        buff = 1000,
+        batch = 1,
         repeat = False,
         splits = SPLITS,
         one_hot = ONE_HOT)
@@ -113,7 +110,6 @@ training = processing.get_training_dataset(
 #         one_hot = ONE_HOT)
 
 ## DEFINE CALLBACKS
-
 m = get_multiclass_model(
     depth = DEPTH,
     nclasses = NCLASSES,
@@ -133,4 +129,4 @@ print('size = ', TRAIN_SIZE)
 print(f'bias = {BIAS}')
 print(f'weight = {WEIGHT}')
 
-np.save(join(out_dir, 'con_mat'), train_con_mat)
+np.save(join(out_dir, 'con_mat.npy'), train_con_mat)
