@@ -10,9 +10,11 @@ from utils.prediction_tools import makePredDataset, callback_predictions, plot_t
 from matplotlib import pyplot as plt
 import argparse
 import os
+from os.path import join
 import glob
 import json
 import math
+import numpy as np
 import tensorflow as tf
 from datetime import datetime
 from azureml.core import Run, Workspace, Model
@@ -48,7 +50,6 @@ if RESPONSE in ONE_HOT.keys():
     if len(ONE_HOT) < 1:
         ONE_HOT = None
     
-OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
 DEPTH = 4
 print(BANDS)
 
@@ -93,7 +94,7 @@ for root, dirs, files in os.walk(args.train_data):
 training = processing.get_training_dataset(
         files = train_files,
         ftDict = FEATURES_DICT,
-        features = BANDS,
+        features = ['R', 'G', 'B', 'N'],
         response = RESPONSE,
         buff = 1000,
         batch = 1,
@@ -110,7 +111,7 @@ training = processing.get_training_dataset(
 #         one_hot = ONE_HOT)
 
 ## DEFINE CALLBACKS
-m = get_multiclass_model(
+m = model_tools.get_multiclass_model(
     depth = DEPTH,
     nclasses = NCLASSES,
     optim = tf.keras.optimizers.Adam(learning_rate = 0.001, beta_1=0.9, beta_2=0.999),
@@ -118,7 +119,7 @@ m = get_multiclass_model(
     mets = [tf.keras.metrics.categorical_accuracy],
     bias = None)
     
-train_con_mat = make_confusion_matrix(training, m, True)
+train_con_mat = model_tools.make_confusion_matrix(training, m, True)
 
 classums = train_con_mat.sum(axis = 1)
 BIAS = np.log(classums[1]/classums[0])
