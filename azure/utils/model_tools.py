@@ -45,7 +45,7 @@ def gen_dice(y_true, y_pred, eps=1e-6, global_weights = None):
     if global_weights:
     # global weights
     # --------------
-        weights = tf.constant(global_weights, shape = (1, 13), dtype = tf.float32)
+        weights = tf.constant(global_weights, shape = (1, len(global_weights)), dtype = tf.float32)
     else:
     # batchwise weight
     # ----------------
