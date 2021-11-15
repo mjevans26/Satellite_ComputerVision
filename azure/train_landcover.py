@@ -8,11 +8,13 @@ Created on Tue Sep 21 12:13:11 2021
 from utils import model_tools, processing
 from utils.prediction_tools import makePredDataset, callback_predictions, plot_to_image
 from matplotlib import pyplot as plt
+from matplotlib import colors
 import argparse
 import os
 import glob
 import json
 import math
+import numpy as np
 import tensorflow as tf
 from datetime import datetime
 from azureml.core import Run, Workspace, Model
@@ -26,7 +28,8 @@ parser.add_argument('--eval_data', type = str, required = True, help = 'Evaluati
 parser.add_argument('--test_data', type = str, default = None, help = 'directory containing test image(s) and mixer')
 parser.add_argument('--model_id', type = str, required = False, default = None, help = 'model id for continued training')
 parser.add_argument('-lr', '--learning_rate', type = float, default = 0.001, help = 'Initial learning rate')
-parser.add_argument('-w', '--weight', type = float, default = None, help = 'Positive sample weight for iou, bce, etc.')
+parser.add_argument('-w', '--weight', type = float, default = [ 9.72591014,  8.53321687,  7.61785897,  9.41131704,  7.34340891,
+       10.79911702, 14.94079428,  8.41725913, 10.98933438, 27.05712717], help = 'Positive sample weight for iou, bce, etc.')
 parser.add_argument('--bias', type = float, default = None, help = 'bias value for keras output layer initializer')
 parser.add_argument('-e', '--epochs', type = int, default = 10, help = 'Number of epochs to train the model for')
 parser.add_argument('-b', '--batch', type = int, default = 16, help = 'Training batch size')
@@ -185,9 +188,11 @@ if args.test_data:
 
     def log_pred_image(epoch, logs):
       out_image = callback_predictions(pred_data, m, mixer)
-      prob = out_image[:, :, 0]
+      probs = out_image[:, :, 0]
+      clss = np.argmax(probs, axis = 2)
+      cmap = colors.ListedColormap(['#5dc5f1', '#50a886', '#3d6e1d', '#80e144', '#bafb85', '#d4a13e', "#e73522", "#9c9c9c", "#000000", "#706e22"])
       figure = plt.figure(figsize=(10, 10))
-      plt.imshow(prob)
+      plt.imshow(clss, norm = colors.BoundaryNorm([1,2,3,4,5,6,7,8,9,10,11], cmap.N), cmap = cmap)
       image = plot_to_image(figure)
     
       with file_writer.as_default():
