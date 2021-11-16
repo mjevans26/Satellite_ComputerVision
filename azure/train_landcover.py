@@ -188,8 +188,8 @@ if args.test_data:
 
     def log_pred_image(epoch, logs):
       out_image = callback_predictions(pred_data, m, mixer)
-      probs = out_image[:, :, 0]
-      clss = np.argmax(probs, axis = 2)
+      # probs = out_image[:, :, :]1
+      clss = np.argmax(out_image, axis = -1)
       cmap = colors.ListedColormap(['#5dc5f1', '#50a886', '#3d6e1d', '#80e144', '#bafb85', '#d4a13e', "#e73522", "#9c9c9c", "#000000", "#706e22"])
       figure = plt.figure(figsize=(10, 10))
       plt.imshow(clss, norm = colors.BoundaryNorm([1,2,3,4,5,6,7,8,9,10,11], cmap.N), cmap = cmap)
