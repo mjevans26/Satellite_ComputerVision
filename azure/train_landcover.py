@@ -70,7 +70,7 @@ OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
 DEPTH = len(BANDS)
 print(BANDS)
 
-METRICS = METRICS = [tf.keras.metrics.categorical_accuracy,
+METRICS = [tf.keras.metrics.categorical_accuracy,
                      tf.keras.metrics.MeanIoU(num_classes=list(RESPONSE.values())[0], name = 'mean_iou')]
 
 # round the training data size up to nearest 100 to define buffer
