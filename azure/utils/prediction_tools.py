@@ -5,7 +5,8 @@ Created on Fri Dec  4 19:24:42 2020
 @author: MEvans
 """
 import os
-from os.path import join, path
+from os.path import join
+from sys import path
 path.append(os.getcwd())
 # import ee
 import json
