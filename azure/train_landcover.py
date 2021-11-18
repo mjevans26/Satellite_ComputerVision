@@ -205,7 +205,7 @@ else:
     callbacks = [checkpoint, tensorboard]
     
 # train the model
-steps_per_epoch = int(TRAIN_SIZE//BATCH)
+steps_per_epoch = int(TRAIN_SIZE//BATCH//2)
 print(steps_per_epoch)
 m.fit(
         x = training,
