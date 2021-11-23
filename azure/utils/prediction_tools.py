@@ -4,8 +4,11 @@ Created on Fri Dec  4 19:24:42 2020
 
 @author: MEvans
 """
+import os
 from os.path import join
-import ee
+from sys import path
+path.append(os.getcwd())
+# import ee
 import json
 import numpy as np
 import tensorflow as tf
@@ -19,55 +22,55 @@ from rasterio.transform import array_bounds
      
 
 # TODO: automate spliting of full GEE path
-def doExport(image, features, scale, bucket, pred_base, pred_path, region, kernel_shape = [256, 256], kernel_buffer = [128,128]):
-  """
-  Run an image export task on which to run predictions.  Block until complete.
-  Parameters:
-    image (ee.Image): image to be exported for prediction
-    features (list): list of band names to include in export
-    scale (int): pixel scale
-    bucket (str): name of GCS bucket to write files
-    pred_path (str): relative google cloud directory path for export
-    pred_base (str): base filename of exported image
-    kernel_shape (array<int>): size of image patch in pixels
-    kernel_buffer (array<int>): pixels to buffer the prediction patch. half added to each side
-    region (ee.Geometry):
-  """
-  task = ee.batch.Export.image.toCloudStorage(
-    image = image.select(features), 
-    description = pred_base, 
-    bucket = bucket, 
-    fileNamePrefix = join(pred_path, pred_base),
-    region = region,#.getInfo()['coordinates'], 
-    scale = scale, 
-    fileFormat = 'TFRecord', 
-    maxPixels = 1e13,
-    formatOptions = { 
-      'patchDimensions': kernel_shape,
-      'kernelSize': kernel_buffer,
-      'compressed': True,
-      'maxFileSize': 104857600
-    }
-  )
-  task.start()
+# def doExport(image, features, scale, bucket, pred_base, pred_path, region, kernel_shape = [256, 256], kernel_buffer = [128,128]):
+#   """
+#   Run an image export task on which to run predictions.  Block until complete.
+#   Parameters:
+#     image (ee.Image): image to be exported for prediction
+#     features (list): list of band names to include in export
+#     scale (int): pixel scale
+#     bucket (str): name of GCS bucket to write files
+#     pred_path (str): relative google cloud directory path for export
+#     pred_base (str): base filename of exported image
+#     kernel_shape (array<int>): size of image patch in pixels
+#     kernel_buffer (array<int>): pixels to buffer the prediction patch. half added to each side
+#     region (ee.Geometry):
+#   """
+#   task = ee.batch.Export.image.toCloudStorage(
+#     image = image.select(features), 
+#     description = pred_base, 
+#     bucket = bucket, 
+#     fileNamePrefix = join(pred_path, pred_base),
+#     region = region,#.getInfo()['coordinates'], 
+#     scale = scale, 
+#     fileFormat = 'TFRecord', 
+#     maxPixels = 1e13,
+#     formatOptions = { 
+#       'patchDimensions': kernel_shape,
+#       'kernelSize': kernel_buffer,
+#       'compressed': True,
+#       'maxFileSize': 104857600
+#     }
+#   )
+#   task.start()
 
-  # Block until the task completes.
-  print('Running image export to Cloud Storage...')
-  import time
-  while task.active():
-    time.sleep(30)
+#   # Block until the task completes.
+#   print('Running image export to Cloud Storage...')
+#   import time
+#   while task.active():
+#     time.sleep(30)
 
-  # Error condition
-  if task.status()['state'] != 'COMPLETED':
-    print('Error with image export.')
-  else:
-    print('Image export completed.')
+#   # Error condition
+#   if task.status()['state'] != 'COMPLETED':
+#     print('Error with image export.')
+#   else:
+#     print('Image export completed.')
 
-  # Error condition
-  if task.status()['state'] != 'COMPLETED':
-    print('Error with image export.')
-  else:
-    print('Image export completed.')
+#   # Error condition
+#   if task.status()['state'] != 'COMPLETED':
+#     print('Error with image export.')
+#   else:
+#     print('Image export completed.')
     
   
 #def makePredDataset(bucket, pred_path, pred_image_base, kernel_buffer, features, raw = None):
@@ -179,7 +182,7 @@ def callback_predictions(imageDataset, model, mixer, kernel_shape = [256, 256], 
     for prediction in predictions:
       print('Writing patch ' + str(x) + '...')
       # lets just write probabilities, classes can be calculated post processing if not present already
-      patch = prediction[y_buffer:y_size, x_buffer:x_size, 0]
+      patch = prediction[y_buffer:y_size, x_buffer:x_size, :]
 #      predPatch = np.add(np.argmax(prediction, axis = 2), 1)
 #      probPatch = np.max(prediction, axis = 2)
 #      predPatch = predPatch[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE]
@@ -419,6 +422,7 @@ def write_geotiff_predictions(fileList, model, jsonFile, features, n, outImgBase
   crs = mixer['projection']['crs']
   ppr = mixer['patchesPerRow']
   tp = mixer['totalPatches']
+  dims = mixer['patchDimensions']
   rows = int(tp/ppr)
   print('rows', rows)
   print('ppr', ppr)
@@ -647,7 +651,7 @@ def doPrediction(bucket, pred_path, pred_image_base, features, one_hot, out_imag
   patches = 0
   written_files = []
   while i < len(imageFilesList):
-    imageDataset = makePredDataset(file_list = imageFileList[i:i+100], kernel_shape = kernel_shape, kernel_buffer = kernel_buffer, features = features, one_hot = one_hot)
+    imageDataset = makePredDataset(file_list = imageFilesList[i:i+100], kernel_shape = kernel_shape, kernel_buffer = kernel_buffer, features = features, one_hot = one_hot)
 #    imageDataset = tf.data.TFRecordDataset(imageFilesList[i:i+100], compression_type='GZIP')
 #    imageDataset = imageDataset.map(parse_image, num_parallel_calls=5)
 #    imageDataset = imageDataset.map(toTupleImage).batch(1)

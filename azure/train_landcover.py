@@ -8,11 +8,13 @@ Created on Tue Sep 21 12:13:11 2021
 from utils import model_tools, processing
 from utils.prediction_tools import makePredDataset, callback_predictions, plot_to_image
 from matplotlib import pyplot as plt
+from matplotlib import colors
 import argparse
 import os
 import glob
 import json
 import math
+import numpy as np
 import tensorflow as tf
 from datetime import datetime
 from azureml.core import Run, Workspace, Model
@@ -26,14 +28,16 @@ parser.add_argument('--eval_data', type = str, required = True, help = 'Evaluati
 parser.add_argument('--test_data', type = str, default = None, help = 'directory containing test image(s) and mixer')
 parser.add_argument('--model_id', type = str, required = False, default = None, help = 'model id for continued training')
 parser.add_argument('-lr', '--learning_rate', type = float, default = 0.001, help = 'Initial learning rate')
-parser.add_argument('-w', '--weight', type = float, default = 1.0, help = 'Positive sample weight for iou, bce, etc.')
+parser.add_argument('-w', '--weight', type = float, default = [ 9.72591014,  8.53321687,  7.61785897,  9.41131704,  7.34340891,
+       10.79911702, 14.94079428,  8.41725913, 10.98933438, 27.05712717], help = 'Positive sample weight for iou, bce, etc.')
 parser.add_argument('--bias', type = float, default = None, help = 'bias value for keras output layer initializer')
 parser.add_argument('-e', '--epochs', type = int, default = 10, help = 'Number of epochs to train the model for')
 parser.add_argument('-b', '--batch', type = int, default = 16, help = 'Training batch size')
 parser.add_argument('--size', type = int, default = 3000, help = 'Size of training dataset')
 parser.add_argument('--kernel_size', type = int, default = 256, dest = 'kernel_size', help = 'Size in pixels of incoming patches')
 parser.add_argument('--response', type = str, required = True, default = 'landcover', help = 'Name of the response variable in tfrecords')
-parser.add_argument('--bands', type = str, nargs = '+', required = False, default = ['B3_summer', 'B3_fall', 'B3_spring', 'B4_summer', 'B4_fall', 'B4_spring', 'B5_summer', 'B5_fall', 'B5_spring', 'B6_summer', 'B6_fall', 'B6_spring', 'B8_summer', 'B8_fall', 'B8_spring', 'B11_summer', 'B11_fall', 'B11_spring', 'B12_summer', 'B12_fall', 'B12_spring', 'R', 'G', 'B', 'N', 'lidar_intensity', 'geomorphons'])
+parser.add_argument('--nclasses', type = int, required = True, default = 10, help = 'Number of response classes')
+parser.add_argument('--bands', type = str, nargs = '+', required = False, default = ['B2_spring', 'B2_summer', 'B2_fall', 'B3_spring', 'B3_summer', 'B3_fall', 'B4_spring', 'B4_summer', 'B4_fall', 'B5_spring', 'B5_summer', 'B5_fall', 'B6_spring', 'B6_summer', 'B6_fall', 'B7_spring', 'B7_summer', 'B7_fall', 'B8_spring', 'B8_summer', 'B8_fall', 'B8A_spring', 'B8A_summer', 'B8A_fall', 'B11_spring', 'B11_summer', 'B11_fall', 'B12_spring', 'B12_summer', 'B12_fall', 'R', 'G', 'B', 'N'])
 parser.add_argument('--splits', type = int, nargs = '+', required = False, default = None )
 parser.add_argument('--one_hot_levels', type = int, nargs = '+', required = False, default = [10])
 parser.add_argument('--one_hot_names', type = str, nargs = '+', required = False, default = ['landcover'])
@@ -49,20 +53,25 @@ WEIGHT = args.weight
 LR = args.learning_rate
 BANDS = args.bands
 RESPONSE = args.response
+NCLASSES = args.nclasses
 
-if RESPONSE in  ONE_HOT.keys():
-    RESPONSE = ONE_HOT
+
+FEATURES = BANDS + [RESPONSE]
+
+# if the response is one-hot convert it to a dictionary
+# this will trigger correct processing by processing.to_tuple
+if RESPONSE in ONE_HOT.keys():
+    # RESPONSE = {key:ONE_HOT[key] for key in [RESPONSE]}
+    RESPONSE = {RESPONSE:ONE_HOT.pop(RESPONSE)}
+    if len(ONE_HOT) < 1:
+        ONE_HOT = None
     
 OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
 DEPTH = len(BANDS)
 print(BANDS)
 
-METRICS = {
-        'logits':[tf.keras.metrics.MeanSquaredError(name='mse'), tf.keras.metrics.Precision(name='precision'), tf.keras.metrics.Recall(name='recall')],
-        'classes':[tf.keras.metrics.MeanIoU(num_classes=2, name = 'mean_iou')]
-        }
-
-FEATURES = BANDS + [RESPONSE]
+METRICS = [tf.keras.metrics.categorical_accuracy,
+                     tf.keras.metrics.MeanIoU(num_classes=list(RESPONSE.values())[0], name = 'mean_iou')]
 
 # round the training data size up to nearest 100 to define buffer
 BUFFER = math.ceil(args.size/100)*100
@@ -156,13 +165,11 @@ print('Number of devices: {}'.format(strategy.num_replicas_in_sync))
 
 # Open a strategy scope.
 with strategy.scope():
-    METRICS = {
-    'logits':[tf.keras.metrics.MeanSquaredError(name='mse'), tf.keras.metrics.Precision(name='precision'), tf.keras.metrics.Recall(name='recall')],
-    'classes':[tf.keras.metrics.MeanIoU(num_classes=2, name = 'mean_iou')]
-    }
-#        METRICS = [tf.keras.metrics.categorical_accuracy, tf.keras.metrics.MeanIoU(num_classes=2, name = 'mean_iou')]
+    METRICS = METRICS = [tf.keras.metrics.categorical_accuracy,
+                         tf.keras.metrics.MeanIoU(num_classes=list(RESPONSE.values())[0], name = 'mean_iou')]
+
     OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
-    m = model_tools.get_model(depth = DEPTH, optim = OPTIMIZER, loss = get_gen_dice, mets = METRICS, bias = BIAS)
+    m = model_tools.get_multiclass_model(depth = DEPTH, nclasses = NCLASSES, optim = OPTIMIZER, loss = get_gen_dice, mets = METRICS, bias = BIAS)
 initial_epoch = 0
 
 # if test images provided, define an image saving callback
@@ -181,9 +188,11 @@ if args.test_data:
 
     def log_pred_image(epoch, logs):
       out_image = callback_predictions(pred_data, m, mixer)
-      prob = out_image[:, :, 0]
+      # probs = out_image[:, :, :]1
+      clss = np.argmax(out_image, axis = -1)
+      cmap = colors.ListedColormap(['#5dc5f1', '#50a886', '#3d6e1d', '#80e144', '#bafb85', '#d4a13e', "#e73522", "#9c9c9c", "#000000", "#706e22"])
       figure = plt.figure(figsize=(10, 10))
-      plt.imshow(prob)
+      plt.imshow(clss, norm = colors.BoundaryNorm([1,2,3,4,5,6,7,8,9,10,11], cmap.N), cmap = cmap)
       image = plot_to_image(figure)
     
       with file_writer.as_default():
@@ -196,7 +205,7 @@ else:
     callbacks = [checkpoint, tensorboard]
     
 # train the model
-steps_per_epoch = int(TRAIN_SIZE//BATCH)
+steps_per_epoch = int(TRAIN_SIZE//BATCH//2)
 print(steps_per_epoch)
 m.fit(
         x = training,

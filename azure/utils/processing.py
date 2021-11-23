@@ -212,7 +212,8 @@ def to_tuple(inputs, features, response, axes = [2], splits = None, one_hot = No
     # stack the augmented bands, optional one-hot tensors, and response variable
     if one_hot:
         featList = [inputs.get(key) for key in features if key not in one_hot.keys()]
-        hotList = [tf.one_hot(tf.cast(inputs.get(key), tf.uint8), val, axis = 2) for key, val in one_hot.items()]
+        hotList= [tf.one_hot(tf.cast(inputs.get(key), tf.uint8), val, axis = 2) for key, val in one_hot.items() if key in features]
+        # hotList = [tf.one_hot(tf.cast(inputs.get(key), tf.uint8), val, axis = 2) for key, val in one_hot.items()]
     else:
         featList = [inputs.get(key) for key in features]
 
@@ -237,8 +238,8 @@ def to_tuple(inputs, features, response, axes = [2], splits = None, one_hot = No
     # perform morphological augmentation
     stacked = aug_img(stacked)
     
-    feats = stacked[:, :, :-1]
-    labels = stacked[:, :, -1:]
+    feats = stacked[:, :, :-res.shape[2]]
+    labels = stacked[:, :, -res.shape[2]:]
     labels = tf.where(tf.greater(labels, 1.0), 1.0, labels)
     return feats, labels
 #    stacked = tf.stack(inputsList, axis=0)
