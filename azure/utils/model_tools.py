@@ -215,6 +215,43 @@ def get_multiclass_model(depth, nclasses, optim, loss, mets, bias = None):
 
     return model
 
+def get_autoencoder(depth, optim, loss, mets):
+    """
+    Build a U-Net model
+    Parameters:
+        depth (int): number of training features (i.e. bands)
+        optim (tf.keras.optimizer): keras optimizer
+        loss (tf.keras.loss): keras or custom loss function
+        mets (dict<tf.keras.metrics): dictionary of metrics for logits and classes. elements are lists of keras metrics
+    Returns:
+        tf.keras.model: compiled U-Net model
+    """
+        
+    inputs = layers.Input(shape=[None, None, depth]) # 256
+    encoder0_pool, encoder0 = encoder_block(inputs, 32) # 128
+    encoder1_pool, encoder1 = encoder_block(encoder0_pool, 64) # 64
+    encoder2_pool, encoder2 = encoder_block(encoder1_pool, 128) # 32
+    encoder3_pool, encoder3 = encoder_block(encoder2_pool, 256) # 16
+    encoder4_pool, encoder4 = encoder_block(encoder3_pool, 512) # 8
+    center = conv_block(encoder4_pool, 1024) # center
+    decoder4 = decoder_block(center, encoder4, 512) # 16
+    decoder3 = decoder_block(decoder4, encoder3, 256) # 32
+    decoder2 = decoder_block(decoder3, encoder2, 128) # 64
+    decoder1 = decoder_block(decoder2, encoder1, 64) # 128
+    decoder0 = decoder_block(decoder1, encoder0, 32) # 256
+    preds = layers.Conv2D(1, (1, 1), name = 'continuous')(decoder0)
+    # logits is a probability and classes is binary. in solar, "tf.cast(tf.greater(x, 0.9)" was used  to avoid too many false positives
+    # classes = layers.Lambda(lambda x: tf.cast(tf.greater(x, 0.5), dtype = tf.int32), name = 'classes')(logits)
+    model = models.Model(inputs=[inputs], outputs=[preds])
+
+    model.compile(
+            optimizer=optim, 
+            loss = {'continuous': loss},
+            #loss=losses.get(LOSS),
+            metrics=mets)
+
+    return model
+
 def make_confusion_matrix_data(tpl, model, multiclass = False):
   """Create data needed to construct a confusion matrix on model predictions
   Functions takes a tfrecord dataset consisting of input features and lables

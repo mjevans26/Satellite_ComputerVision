@@ -422,6 +422,7 @@ def write_geotiff_predictions(fileList, model, jsonFile, features, n, outImgBase
   crs = mixer['projection']['crs']
   ppr = mixer['patchesPerRow']
   tp = mixer['totalPatches']
+  dims = mixer['patchDimensions']
   rows = int(tp/ppr)
   print('rows', rows)
   print('ppr', ppr)
