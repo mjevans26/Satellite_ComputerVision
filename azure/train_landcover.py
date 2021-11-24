@@ -74,7 +74,7 @@ METRICS = [tf.keras.metrics.categorical_accuracy,
                      tf.keras.metrics.MeanIoU(num_classes=list(RESPONSE.values())[0], name = 'mean_iou')]
 
 # round the training data size up to nearest 100 to define buffer
-BUFFER = math.ceil(args.size/100)*100
+BUFFER = math.ceil(args.size//2/100)*100
 
 # Specify the size and shape of patches expected by the model.
 KERNEL_SIZE = args.kernel_size
@@ -143,7 +143,7 @@ date
 
 # define a checkpoint callback to save best models during training
 checkpoint = tf.keras.callbacks.ModelCheckpoint(
-    os.path.join(out_dir, 'best_weights_' + date + '.hdf5'),
+    os.path.join(out_dir, 'best_weights_' + date + '_{epoch:02d}.hdf5'),
     monitor='val_mean_iou',
     verbose=1,
     save_best_only=True,
@@ -216,4 +216,4 @@ m.fit(
         #initial_epoch = initial_epoch
         )
 
-m.save(os.path.join(out_dir, 'unet256.h5'))
+m.save(os.path.join(out_dir, f'class10_unet256_{date}.h5'))
