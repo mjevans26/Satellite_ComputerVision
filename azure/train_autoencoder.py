@@ -38,13 +38,12 @@ BATCH = args.batch
 EPOCHS = args.epochs
 LR = args.learning_rate
 BANDS = args.bands
-RESPONSE = args.response
 OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
 LOSS = 'mean_squared_error'
 METRICS = [tf.keras.metrics.MeanSquaredError(name = 'mse')]
 
 # round the training data size up to nearest 100 to define buffer
-BUFFER = math.ceil(args.size/100)*100
+BUFFER = math.ceil(args.size//4/100)*100
 
 # Specify the size and shape of patches expected by the model.
 KERNEL_SIZE = args.kernel_size
@@ -73,7 +72,8 @@ eval_files = []
 for root, dirs, files in os.walk(args.eval_data):
     for f in files:
         eval_files.append(os.path.join(root, f))
-        
+print(f'number of train files = {len(train_files)}')
+print(f'first train file is {train_files[0]}')
 def to_tuple(inputs):
   """Function to convert a dictionary of tensors to a tuple of (inputs, outputs).
   Turn the tensors returned by parse_tfrecord into a stack in HWC shape.
@@ -88,11 +88,11 @@ def to_tuple(inputs):
   # Convert from CHW to HWC
   stacked = tf.transpose(stacked, [1, 2, 0])
   # Perform image augmentation
-  stacked = aug_img(stacked)
-  normalized = normalize(stacked, [2])
+  stacked = processing.aug_img(stacked)
+  normalized = processing.normalize(stacked, [2])
   # do color augmentation on input features
-  before = aug_color(normalized)
-  after = aug_color(normalized)
+  before = processing.aug_color(normalized)
+  after = processing.aug_color(normalized)
   # standardize each patch of bands
   bands = tf.concat([before, after], axis = -1)
   response = bands
@@ -161,14 +161,14 @@ def get_eval_dataset(files, ftDict, axes = [2], splits = None, one_hot = None, m
 	return dataset
 
 training = get_training_dataset(
-        files = train_files,
+        files = train_files[:len(train_files)//4],
         ftDict = FEATURES_DICT,
         buff = BUFFER,
         batch = BATCH,
         repeat = True)
 
 evaluation = get_eval_dataset(
-        files = eval_files,
+        files = eval_files[:len(eval_files)//4],
         ftDict = FEATURES_DICT,
         features = BANDS)
 
@@ -181,7 +181,7 @@ date
 
 # define a checkpoint callback to save best models during training
 checkpoint = tf.keras.callbacks.ModelCheckpoint(
-    join(out_dir, 'best_weights'+date+'.hdf5'),
+    os.path.join(out_dir, 'best_weights'+date+'.hdf5'),
     monitor='val_mse',
     verbose=1,
     save_best_only=True,
@@ -191,33 +191,43 @@ checkpoint = tf.keras.callbacks.ModelCheckpoint(
 # define a tensorboard callback to write training logs
 tensorboard = tf.keras.callbacks.TensorBoard(log_dir = log_dir)
 
+callbacks = [checkpoint, tensorboard]
+
 # get the run context
 run = Run.get_context()
 exp = run.experiment
 ws = exp.workspace
 
-## BUILD THE MODEL
+# # Create a MirroredStrategy.
+# strategy = tf.distribute.MirroredStrategy()
+# print('Number of devices: {}'.format(strategy.num_replicas_in_sync))
 
-# if a model directory provided we will reload previously trained model and weights
-if args.model_id:
-    # we will package the 'models' directory within the 'azure' dirrectory submitted with experiment run
-    model_dir = Model.get_model_path(args.model_id, _workspace = ws)
-#    model_dir = os.path.join('./models', args.model_id, '1', 'outputs')
+# ## BUILD THE MODEL
+# with strategy.scope():
+#     METRICS = [tf.keras.metrics.MeanSquaredError(name = 'mse')]
+
+#     OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
+m = model_tools.get_autoencoder(depth = len(BANDS)*2, optim = OPTIMIZER, loss = LOSS, mets = METRICS)
+# # if a model directory provided we will reload previously trained model and weights
+# if args.model_id:
+#     # we will package the 'models' directory within the 'azure' dirrectory submitted with experiment run
+#     model_dir = Model.get_model_path(args.model_id, _workspace = ws)
+# #    model_dir = os.path.join('./models', args.model_id, '1', 'outputs')
     
-    # load our previously trained model and weights
-    model_file = glob.glob(os.path.join(model_dir, '*.h5'))[0]
-    weights_file = glob.glob(os.path.join(model_dir, '*.hdf5'))[0]
-    m, checkpoint = model_tools.retrain_model(model_file, checkpoint, evaluation, 'classes_mean_iou', weights_file, weight = WEIGHT, lr = LR)
-    # TODO: make this dynamic
-    initial_epoch = 100
-# otherwise build a model from scratch with provided specs
-else:
-    m = model_tools.get_autoencoder(depth = len(BANDS)*2, optim = OPTIMIZER, loss = LOSS, mets = METRICS)
-    initial_epoch = 0
+#     # load our previously trained model and weights
+#     model_file = glob.glob(os.path.join(model_dir, '*.h5'))[0]
+#     weights_file = glob.glob(os.path.join(model_dir, '*.hdf5'))[0]
+#     m, checkpoint = model_tools.retrain_model(model_file, checkpoint, evaluation, 'classes_mean_iou', weights_file, weight = WEIGHT, lr = LR)
+#     # TODO: make this dynamic
+#     initial_epoch = 100
+# # otherwise build a model from scratch with provided specs
+# else:
+#     m = model_tools.get_autoencoder(depth = len(BANDS)*2, optim = OPTIMIZER, loss = LOSS, mets = METRICS)
+#     initial_epoch = 0
 
 # train the model
-steps_per_epoch = int(TRAIN_SIZE//BATCH)
-print(steps_per_epoch)
+steps_per_epoch = int(TRAIN_SIZE//BATCH//4)
+print('steps per epoch', steps_per_epoch)
 m.fit(
         x = training,
         epochs = EPOCHS,
