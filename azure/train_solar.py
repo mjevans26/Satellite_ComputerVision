@@ -116,7 +116,7 @@ date
 
 # define a checkpoint callback to save best models during training
 checkpoint = tf.keras.callbacks.ModelCheckpoint(
-    os.path.join(out_dir, 'best_weights_' + date + '.hdf5'),
+    os.path.join(out_dir, 'best_weights_'+date+'_{epoch:02d}.hdf5'),
     monitor='val_classes_mean_iou',
     verbose=1,
     save_best_only=True,
@@ -147,7 +147,7 @@ if args.model_id:
     initial_epoch = 100
 # otherwise build a model from scratch with provided specs
 else:
-    m = model_tools.get_model(depth = len(BANDS), optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS, bias = BIAS)
+    m = model_tools.get_binary_model(depth = len(BANDS), optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS, bias = BIAS)
     initial_epoch = 0
 
 # if test images provided, define an image saving callback
@@ -190,4 +190,4 @@ m.fit(
         #initial_epoch = initial_epoch
         )
 
-m.save(os.path.join(out_dir, 'unet256.h5'))
+m.save(os.path.join(out_dir, f'unet256_{date}.h5'))
