@@ -160,6 +160,8 @@ ws = exp.workspace
 
 ## BUILD THE MODEL
 # Create a MirroredStrategy.
+device_name = tf.test.gpu_device_name()
+print(f'Device name: {device_name}')
 strategy = tf.distribute.MirroredStrategy()
 print('Number of devices: {}'.format(strategy.num_replicas_in_sync))
 
