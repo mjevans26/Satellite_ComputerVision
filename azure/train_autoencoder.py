@@ -161,14 +161,14 @@ def get_eval_dataset(files, ftDict, axes = [2], splits = None, one_hot = None, m
 	return dataset
 
 training = get_training_dataset(
-        files = train_files[:len(train_files)//4],
+        files = train_files[:len(train_files)//2],
         ftDict = FEATURES_DICT,
         buff = BUFFER,
         batch = BATCH,
         repeat = True)
 
 evaluation = get_eval_dataset(
-        files = eval_files[:len(eval_files)//4],
+        files = eval_files[:len(eval_files)//2],
         ftDict = FEATURES_DICT,
         features = BANDS)
 
