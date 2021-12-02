@@ -43,9 +43,10 @@ parser.add_argument('--one_hot_levels', type = int, nargs = '+', required = Fals
 parser.add_argument('--one_hot_names', type = str, nargs = '+', required = False, default = ['landcover'])
 args = parser.parse_args()
 
+FACTOR = 2
 ONE_HOT = dict(zip(args.one_hot_names, args.one_hot_levels))
 SPLITS = args.splits
-TRAIN_SIZE = args.size
+TRAIN_SIZE = args.size//FACTOR
 BATCH = args.batch
 EPOCHS = args.epochs
 BIAS = args.bias
@@ -74,7 +75,7 @@ METRICS = [tf.keras.metrics.categorical_accuracy,
                      tf.keras.metrics.MeanIoU(num_classes=list(RESPONSE.values())[0], name = 'mean_iou')]
 
 # round the training data size up to nearest 100 to define buffer
-BUFFER = math.ceil(args.size//2/100)*100
+BUFFER = math.ceil(TRAIN_SIZE/100)*100
 
 # Specify the size and shape of patches expected by the model.
 KERNEL_SIZE = args.kernel_size
@@ -98,14 +99,14 @@ i = 1
 train_files = []
 for root, dirs, files in os.walk(args.train_data):
     for f in files:
-        if i%2==0:
+        if i%FACTOR==0:
             train_files.append(os.path.join(root, f))
         i+=1
 
 eval_files = []
 for root, dirs, files in os.walk(args.eval_data):
     for f in files:
-        if i%2==0:
+        if i%FACTOR==0:
             eval_files.append(os.path.join(root, f))
         i+=1
         
@@ -207,7 +208,7 @@ else:
     callbacks = [checkpoint, tensorboard]
     
 # train the model
-steps_per_epoch = int(TRAIN_SIZE//BATCH//2)
+steps_per_epoch = int(TRAIN_SIZE//BATCH)
 print(steps_per_epoch)
 m.fit(
         x = training,
