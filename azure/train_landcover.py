@@ -38,7 +38,7 @@ parser.add_argument('--kernel_size', type = int, default = 256, dest = 'kernel_s
 parser.add_argument('--response', type = str, required = True, default = 'landcover', help = 'Name of the response variable in tfrecords')
 parser.add_argument('--nclasses', type = int, required = True, default = 10, help = 'Number of response classes')
 parser.add_argument('--bands', type = str, nargs = '+', required = False, default = ['B2_spring', 'B2_summer', 'B2_fall', 'B3_spring', 'B3_summer', 'B3_fall', 'B4_spring', 'B4_summer', 'B4_fall', 'B5_spring', 'B5_summer', 'B5_fall', 'B6_spring', 'B6_summer', 'B6_fall', 'B7_spring', 'B7_summer', 'B7_fall', 'B8_spring', 'B8_summer', 'B8_fall', 'B8A_spring', 'B8A_summer', 'B8A_fall', 'B11_spring', 'B11_summer', 'B11_fall', 'B12_spring', 'B12_summer', 'B12_fall', 'R', 'G', 'B', 'N'])
-parser.add_argument('--splits', type = int, nargs = '+', required = False, default = None )
+parser.add_argument('--splits', type = int, nargs = '+', required = False, default = [30, 4] )
 parser.add_argument('--one_hot_levels', type = int, nargs = '+', required = False, default = [10])
 parser.add_argument('--one_hot_names', type = str, nargs = '+', required = False, default = ['landcover'])
 args = parser.parse_args()
@@ -95,7 +95,7 @@ log_dir = './logs'
 
 # train_files = glob.glob(os.path.join(args.data_folder, 'training', 'UNET_256_[A-Z]*.gz'))
 # eval_files =  glob.glob(os.path.join(args.data_folder, 'eval', 'UNET_256_[A-Z]*.gz'))
-i = 1
+i = 0
 train_files = []
 for root, dirs, files in os.walk(args.train_data):
     for f in files:
@@ -173,7 +173,22 @@ with strategy.scope():
 
     OPTIMIZER = tf.keras.optimizers.Adam(learning_rate=LR, beta_1=0.9, beta_2=0.999)
     m = model_tools.get_multiclass_model(depth = DEPTH, nclasses = NCLASSES, optim = OPTIMIZER, loss = get_gen_dice, mets = METRICS, bias = BIAS)
-initial_epoch = 0
+
+# if a model directory provided we will reload previously trained model and weights
+    if args.model_id:
+        # we will package the 'models' directory within the 'azure' dirrectory submitted with experiment run
+        model_dir = Model.get_model_path(args.model_id, _workspace = ws)
+    #    model_dir = os.path.join('./models', args.model_id, '1', 'outputs')
+        
+        # load our previously trained model and weights
+        model_file = glob.glob(os.path.join(model_dir, '*.h5'))[0]
+        weights_file = glob.glob(os.path.join(model_dir, '*.hdf5'))[0]
+        m, checkpoint = model_tools.retrain_model(model_file, checkpoint, evaluation, 'mean_iou', weights_file, custom_objects = {'get_gen_dice':get_gen_dice}, lr = LR)
+        # TODO: make this dynamic
+        initial_epoch = 100
+    
+    else:
+        initial_epoch = 0
 
 # if test images provided, define an image saving callback
 if args.test_data:

@@ -312,7 +312,7 @@ def make_confusion_matrix(dataset, model, multiclass = False):
   print(i)
   return con_mat
 
-def retrain_model(model_file, checkpoint, eval_data, metric, weights_file = None, weight = None, lr = None):
+def retrain_model(model_file, checkpoint, eval_data, metric, weights_file = None, custom_objects = None, lr = None):
     """
     Load a previously trained model and continue training
     Parameters:
@@ -328,8 +328,12 @@ def retrain_model(model_file, checkpoint, eval_data, metric, weights_file = None
     def get_weighted_bce(y_true, y_pred):
         return weighted_bce(y_true, y_pred, weight)
     
-    if weight:
-        custom_objects = {'get_weighted_bce': get_weighted_bce}
+    def get_gen_dice(y_true, y_pred):
+        return gen_dice(y_true, y_pred, global_weights = weight)
+    
+    if custom_objects:
+        # custom_objects = {'get_weighted_bce': get_weighted_bce}
+        custom_objects = custom_objects
     else:
         custom_objects = {}
         
