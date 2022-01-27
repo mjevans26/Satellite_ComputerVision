@@ -290,7 +290,7 @@ def make_array_predictions(imageDataset, model, jsonFile, kernel_shape = [256, 2
 
     return rows
 
-def write_tfrecord_predictions(imageDataset, model, pred_path, out_image_base, kernel_shape = [256, 256], kernel_buffer = [128,128]):
+def write_tfrecord_predictions(predictions, pred_path, out_image_base, kernel_shape = [256, 256], kernel_buffer = [128,128]):
     """Generate predictions and save as TFRecords to Cloud Storage
     Parameters:
       imageDataset (tf.Dataset): data on which to run predictions
@@ -303,8 +303,8 @@ def write_tfrecord_predictions(imageDataset, model, pred_path, out_image_base, k
       empty: Writes TFRecord files to specified destination
     """
     # Perform inference.
-    print('Running predictions...')
-    predictions = model.predict(imageDataset, steps=None, verbose=1)
+    # print('Running predictions...')
+    # predictions = model.predict(imageDataset, steps=None, verbose=1)
     # print(predictions[0])
     
     # some models will outputs probs and classes as a list
@@ -315,9 +315,7 @@ def write_tfrecord_predictions(imageDataset, model, pred_path, out_image_base, k
     # get the number of bands (should usually be one or two)
     C = predictions.shape[-1]
     
-    out_image_file = join(pred_path,
-                          'outputs/tfrecord',
-                          '{}.TFRecord'.format(out_image_base))
+    out_image_file = join(pred_path, f'{out_image_base}.tfrecords')
     
     print('Writing predictions to ' + out_image_file + '...')
     writer = tf.io.TFRecordWriter(out_image_file)
