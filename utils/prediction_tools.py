@@ -390,118 +390,62 @@ def write_geotiff_prediction(image, jsonFile, aoi):
       dst.write(np.transpose(image, (2,0,1)))
       
 # TODO: re-calculate n and write files not strictly based on rows
-def write_geotiff_predictions(fileList, model, jsonFile, features, n, outImgBase, outImgPath, one_hot = None, kernel_shape = [256, 256], kernel_buffer = [128,128], export = True):
-  """Write a numpy array as a GeoTIFF to Google Cloud
+def write_geotiff_predictions(predictions, mixer, outImgBase, outImgPath, kernel_buffer = [128,128]):
+  """Run predictions on a TFRecord dataset and save as a GeoTIFF
   Parameters:
-    fileList (list): list of files containing prediction data
-    model (keras.Model): loaded model used to make preditions
+    imageDataset (tf.Dataset): data on which to run predictions
     jsonFile (str): filename of json mixer file
-    features (list): list of incoming feature names in prediction data
-    n (int): number of rows to write per file
     outImgPath (str): directory in which to write predictions
     outImgBase (str): file basename
-    kernel_shape (tpl): [y, x] size of image patch in pixels
     kernel_buffer (tpl): x and y padding around patches
-    one_hot (dict): dictionary with key, value pairs of features to be cast to one hot and desired depth
-    export (bool): export geotiffs to cloud storage upon writing?
   Return:
     empty: writes geotiff records temporarily to working directory
   """
+  # with open(jsonFile, ) as file:
+  #   mixer = json.load(file)
+  transform = mixer['projection']['affine']['doubleMatrix']
+  crs = mixer['projection']['crs']
+  ppr = mixer['patchesPerRow']
+  tp = mixer['totalPatches']
+  rows = int(tp/ppr)
+  kernel_shape = mixer['patchDimensions']
 
+  H = rows*kernel_shape[0]
+  W = ppr*kernel_shape[1]
+  y_indices = list(range(0, H, kernel_shape[0]))
+  x_indices = list(range(0, W, kernel_shape[1]))
+  indices = [(y,x) for y in y_indices for x in x_indices]
+  out_array = np.zeros((H, W, 1), dtype = np.float32)
+  print('out array', out_array.shape)
   x_buffer = int(kernel_buffer[0]/2)
   y_buffer = int(kernel_buffer[1]/2)
   x_size = x_buffer + kernel_shape[1]
   y_size = y_buffer + kernel_shape[0]
 
-  with open(jsonFile,) as file:
-      mixer = json.load(file)
-        
-  transform = mixer['projection']['affine']['doubleMatrix']
-  crs = mixer['projection']['crs']
-  ppr = mixer['patchesPerRow']
-  tp = mixer['totalPatches']
-  dims = mixer['patchDimensions']
-  rows = int(tp/ppr)
-  print('rows', rows)
-  print('ppr', ppr)
-  
-  # define a rasterio affine transformation matrix based on the json mixer crs
+  # prediction = model.predict(imageDataset, steps = tp, verbose = 1)
+  if type(predictions) == list:
+    predictions = np.concatenate(predictions, axis = 3)
+    
+  for i, (y,x) in enumerate (indices):
+    prediction = predictions[i]
+    print('prediction', prediction.shape)
+    out_array[y:y+kernel_shape[0], x:x+kernel_shape[1],0] += prediction[y_buffer:y_size, x_buffer:x_size, 0]
+      
   affine = rio.Affine(transform[0], transform[1], transform[2], transform[3], transform[4], transform[5])
 
-  # get our prediction data and make predictions one chunk at a time
-  data = makePredDataset(fileList, features, kernel_shape, kernel_buffer, one_hot = one_hot).unbatch().batch(ppr)
-  iterator = iter(data)
-  # initial row offset for affine window is 0
-  row_offset = 0
-  # create counter for number of rows in current file
-  counter = 0
-  for row in range(rows):
-    # predict a row of patches - this comes out as a list...?
-    predictions = model.predict(iterator.next(), batch_size = 1, steps = ppr)
-    print('shape of predictions', predictions[0].shape)
-    # trim the buffer from predictions
-    trimmed = predictions[0][:, y_buffer: y_size, x_buffer:x_size, 0]
-    patch = np.concatenate(trimmed, axis = 1)
-    print('patch shape', patch.shape)
-    # for the first row we set our image equal to the row patch, define the height and return to top of loop
-    if counter == 0:
-      image = patch
-      counter += 1
-    
-    # for any other row we concatenate with previous rows (i.e., 'image')
-    else:
-      # concatenate rows along first axis (i.e. y axis)
-      image = np.concatenate([image, patch], axis = 0)
-
-      # increase counter
-      counter += 1
-
-    # for every nth row, or the last one
-    if counter == n or row == rows-1:
-      image = np.expand_dims(image, axis = 0)
-      print('current image shape', image.shape)
-      H = image.shape[1]
-      W = image.shape[2]
-      C = image.shape[0]
-      
-      # Set our output filenames
-      out_geotiff = outImgBase + '{:05d}.tif'.format(row)
-      out_image_file = join(outImgPath, out_geotiff)
-      print(out_image_file)
-
-      # create affine matrix for the current slice
-      window = rio.windows.Window(col_off = 0, row_off = row_offset, width = W, height = H)
-      out_affine = rio.windows.transform(window, affine)
-      # set our counter equal to the most recently written row
-
-      with rio.open(
-        out_image_file,
-        'w',
-        driver = 'GTiff',
-        width = W,
-        height = H,
-        count = C,
-        dtype = image.dtype,
-        crs = crs,
-        transform = out_affine) as dst:
-          # for multi-channel images, rasterio takes channels first
-#        dst.write(np.transpose(image, (2,0,1)))
-        dst.write(image)
-
-      print('Successfully wrote geotiff to local storage')
-      row_offset += H
-
-      #reset counter
-      counter = 0
-
-#      if export:
-#        # create a cloud optimized geotiff
-#        # !gdal_translate {out_geotiff} {out_geotiff} -co TILED=YES -co COPY_SRC_OVERVIEWS=YES -co COMPRESS=DEFLATE
-#        # move to GCS
-#        blob = bucket.blob(out_image_file)
-#        blob.upload_from_filename(out_geotiff)
-##        !gsutil mv {out_geotiff} {out_image_file}
-#        print('Moved', out_geotiff, 'to cloud')
+  out_image_file = join(outImgPath, f'{outImgBase}.tif')
+  print(f'writing image to {out_image_file}')
+  with rio.open(
+    out_image_file,
+    'w',
+    driver = 'GTiff',
+    width = W,
+    height = H,
+    count = 1,
+    dtype = out_array.dtype,
+    crs = crs,
+    transform = affine) as dst:
+    dst.write(np.transpose(out_array, (2,0,1)))
 
 #def ingest_predictions(pred_path, out_image_base, user_folder):
 #  """
