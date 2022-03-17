@@ -390,10 +390,11 @@ def write_geotiff_prediction(image, jsonFile, aoi):
       dst.write(np.transpose(image, (2,0,1)))
       
 # TODO: re-calculate n and write files not strictly based on rows
-def write_geotiff_predictions(predictions, mixer, outImgBase, outImgPath, kernel_buffer = [128,128]):
+def write_geotiff_predictions(imageDataset, model, jsonFile, outImgBase, outImgPath, kernel_buffer = [128,128]):
   """Run predictions on a TFRecord dataset and save as a GeoTIFF
   Parameters:
     imageDataset (tf.Dataset): data on which to run predictions
+    model (tf.keras.Model): trained model
     jsonFile (str): filename of json mixer file
     outImgPath (str): directory in which to write predictions
     outImgBase (str): file basename
@@ -401,8 +402,8 @@ def write_geotiff_predictions(predictions, mixer, outImgBase, outImgPath, kernel
   Return:
     empty: writes geotiff records temporarily to working directory
   """
-  # with open(jsonFile, ) as file:
-  #   mixer = json.load(file)
+  with open(jsonFile, ) as file:
+    mixer = json.load(file)
   transform = mixer['projection']['affine']['doubleMatrix']
   crs = mixer['projection']['crs']
   ppr = mixer['patchesPerRow']
@@ -423,13 +424,18 @@ def write_geotiff_predictions(predictions, mixer, outImgBase, outImgPath, kernel
   y_size = y_buffer + kernel_shape[0]
 
   # prediction = model.predict(imageDataset, steps = tp, verbose = 1)
-  if type(predictions) == list:
-    predictions = np.concatenate(predictions, axis = 3)
-    
+  # if type(predictions) == list:
+  #   predictions = np.concatenate(predictions, axis = 3)
+  
+  iterator = iter(imageDataset)
+
   for i, (y,x) in enumerate (indices):
-    prediction = predictions[i]
+    prediction = model.predict(iterator.next(), steps = 1, verbose = 1)
+    if type(prediction) == list:
+      prediction = np.concatenate(prediction, axis = 3)
+    # prediction = predictions[i]
     print('prediction', prediction.shape)
-    out_array[y:y+kernel_shape[0], x:x+kernel_shape[1],0] += prediction[y_buffer:y_size, x_buffer:x_size, 0]
+    out_array[y:y+kernel_shape[0], x:x+kernel_shape[1], 0] += prediction[0, y_buffer:y_size, x_buffer:x_size, 0]
       
   affine = rio.Affine(transform[0], transform[1], transform[2], transform[3], transform[4], transform[5])
 
