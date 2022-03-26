@@ -325,11 +325,11 @@ def retrain_model(model_file, checkpoint, eval_data, metric, weights_file = None
         keras.Model: 
     """
     
-    def get_weighted_bce(y_true, y_pred):
-        return weighted_bce(y_true, y_pred, weight)
+    # def get_weighted_bce(y_true, y_pred):
+    #     return weighted_bce(y_true, y_pred, weight)
     
-    def get_gen_dice(y_true, y_pred):
-        return gen_dice(y_true, y_pred, global_weights = weight)
+    # def get_gen_dice(y_true, y_pred):
+    #     return gen_dice(y_true, y_pred, global_weights = weight)
     
     if custom_objects:
         # custom_objects = {'get_weighted_bce': get_weighted_bce}
@@ -344,6 +344,7 @@ def retrain_model(model_file, checkpoint, eval_data, metric, weights_file = None
     # set the initial evaluation metric for saving checkpoints to the previous best value
     evalMetrics = m.evaluate(x = eval_data, verbose = 1)
     metrics = m.metrics_names
+    print(metrics)
     index = metrics.index(metric)
     checkpoint.best = evalMetrics[index]
     # set the learning rate for re-training
