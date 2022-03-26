@@ -74,7 +74,7 @@ from rasterio.transform import array_bounds
     
   
 #def makePredDataset(bucket, pred_path, pred_image_base, kernel_buffer, features, raw = None):
-def makePredDataset(file_list, features, kernel_shape = [256, 256], kernel_buffer = [128, 128], axes = [2], splits = None, moments = None, one_hot = None, **kwargs):
+def make_pred_dataset(file_list, features, kernel_shape = [256, 256], kernel_buffer = [128, 128], axes = [2], splits = None, moments = None, one_hot = None, **kwargs):
     """ Make a TFRecord Dataset that can be used for predictions
     Parameters:
         file_list: list of complete pathnames for prediction data files
@@ -599,7 +599,7 @@ def doPrediction(bucket, pred_path, pred_image_base, features, one_hot, out_imag
   patches = 0
   written_files = []
   while i < len(imageFilesList):
-    imageDataset = makePredDataset(file_list = imageFilesList[i:i+100], kernel_shape = kernel_shape, kernel_buffer = kernel_buffer, features = features, one_hot = one_hot)
+    imageDataset = make_pred_dataset(file_list = imageFilesList[i:i+100], kernel_shape = kernel_shape, kernel_buffer = kernel_buffer, features = features, one_hot = one_hot)
 #    imageDataset = tf.data.TFRecordDataset(imageFilesList[i:i+100], compression_type='GZIP')
 #    imageDataset = imageDataset.map(parse_image, num_parallel_calls=5)
 #    imageDataset = imageDataset.map(toTupleImage).batch(1)
