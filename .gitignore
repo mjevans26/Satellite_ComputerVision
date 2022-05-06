@@ -15,6 +15,7 @@ data/
 # Azure stuff
 *.amlignore
 *.amltmp
+.ipynb_aml_checkpoints
 
 # Distribution / packaging
 .Python
