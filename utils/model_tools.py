@@ -265,8 +265,18 @@ def make_confusion_matrix_data(tpl, model, multiclass = False):
   Returns:
     tuple: 1D label and prediction arrays from the input datset
   """
-  preds = model.predict(tpl[0], verbose = 1)
-  preds = preds[0,:,:,:]
+  predicted = model.predict(tpl[0], verbose = 1)
+  print(len(predicted))
+      # some models will outputs probs and classes as a list
+  print(type(preds))
+  if type(preds) == list:
+      print(preds[0].shape)
+      preds = preds[0]
+      # in this case, concatenate list elments into a single 4d array along last dimension
+    #   preds = np.concatenate(preds, axis = 3)
+  else:
+      print(preds.shape)
+      preds = preds[0,:,:,:]
   labs = tpl[1]
 
   if multiclass:
@@ -274,7 +284,7 @@ def make_confusion_matrix_data(tpl, model, multiclass = False):
     predictions = np.argmax(preds, axis = -1).flatten()
     
   else:
-    predictions = np.squeeze(np.greater(preds[0], 0.5)).flatten()
+    predictions = np.squeeze(np.greater(preds, 0.5)).flatten()
     labels = np.squeeze(labs).flatten()
     
   return labels, predictions
