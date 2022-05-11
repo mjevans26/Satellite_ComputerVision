@@ -7,7 +7,8 @@ Created on Fri Dec  4 19:24:42 2020
 import os
 from os.path import join
 from sys import path
-path.append(os.getcwd())
+path.append(os.path.join(path[0], 'scv'))
+print(path)
 # import ee
 import json
 import numpy as np
