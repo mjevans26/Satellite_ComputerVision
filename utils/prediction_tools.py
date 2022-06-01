@@ -73,7 +73,50 @@ from rasterio.transform import array_bounds
 #   else:
 #     print('Image export completed.')
     
-  
+def extract_chips(arr, buff = 128, kernel = 256):
+    """Break an array into (potentially) overlapping chips for analysis
+    Arguments:
+        arr (ndarray): 3D array to run predictions on
+        buff (int): size of pixels to be trimmed from chips
+        kernel (int): size of contiguous image chips
+    Return:
+        tpl: list containing image chips of size (kernel+buff, kernel+buff) and list containing (y,x) index of chips upper left corner
+    """
+    H, W, C = arr.shape
+    side = buff + kernel
+    x_buff = y_buff = buff//2
+    chips = []
+    chip_indices = []
+    y_indices = list(range(y_buff, H - side, kernel))
+    x_indices = list(range(x_buff, W - side, kernel))
+    for y_index in y_indices:
+        for x_index in x_indices:
+            chip = arr[y_index-y_buff:y_index+kernel+y_buff, x_index-x_buff:x_index+kernel+x_buff, :]
+            chips.append(chip)
+            chip_indices.append((y_index, x_index))
+    
+    return chips, chip_indices
+
+def predict_chips(chips, chip_indices, output, m, kernel = 256, buff = 128):
+    """Predict changes in image chips
+    Arguments:
+        chips (list): kernel+buff x kernel+buff pixel chips to be fed to U-Net model
+        chip_indices (list): list of (y,x) tuples marking position of chip upper-left corner in output array
+        m (keras.Model): model to be used to make predictions
+        output (ndarray): all-zero array to which predictions will be written
+        buff (int): total number of pixels to be trimmed from output chips in x and y direction
+        kernel (int): number of pixels in x and y retained in prediction chips
+    Return:
+        ndarray: 3D array of size output.shape containing change probabilities
+    """
+    y_buff = x_buff = buff//2
+    if len(chips) >= 1:
+        for i, (y, x) in enumerate(chip_indices):
+            preds = m.predict(np.array([chips[i]]), verbose = 0)
+            output[y:y+kernel, x:x+kernel] += preds[0][0, y_buff:(kernel + x_buff), x_buff:(kernel+x_buff),:]
+
+    return output
+      
 #def makePredDataset(bucket, pred_path, pred_image_base, kernel_buffer, features, raw = None):
 def make_pred_dataset(file_list, features, kernel_shape = [256, 256], kernel_buffer = [128, 128], axes = [2], splits = None, moments = None, one_hot = None, **kwargs):
     """ Make a TFRecord Dataset that can be used for predictions
