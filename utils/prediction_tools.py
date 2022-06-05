@@ -97,13 +97,13 @@ def extract_chips(arr, buff = 128, kernel = 256):
     
     return chips, chip_indices
 
-def predict_chips(chips, chip_indices, output, m, kernel = 256, buff = 128):
+def predict_chips(chips, chip_indices, template, m, kernel = 256, buff = 128):
     """Predict changes in image chips
     Arguments:
         chips (list): kernel+buff x kernel+buff pixel chips to be fed to U-Net model
         chip_indices (list): list of (y,x) tuples marking position of chip upper-left corner in output array
         m (keras.Model): model to be used to make predictions
-        output (ndarray): all-zero array to which predictions will be written
+        template (ndarray): all-zero array to which predictions will be written
         buff (int): total number of pixels to be trimmed from output chips in x and y direction
         kernel (int): number of pixels in x and y retained in prediction chips
     Return:
@@ -113,9 +113,9 @@ def predict_chips(chips, chip_indices, output, m, kernel = 256, buff = 128):
     if len(chips) >= 1:
         for i, (y, x) in enumerate(chip_indices):
             preds = m.predict(np.array([chips[i]]), verbose = 0)
-            output[y:y+kernel, x:x+kernel] += preds[0][0, y_buff:(kernel + x_buff), x_buff:(kernel+x_buff),:]
+            template[y:y+kernel, x:x+kernel] += preds[0][0, y_buff:(kernel + x_buff), x_buff:(kernel+x_buff),:]
 
-    return output
+    return template
       
 #def makePredDataset(bucket, pred_path, pred_image_base, kernel_buffer, features, raw = None):
 def make_pred_dataset(file_list, features, kernel_shape = [256, 256], kernel_buffer = [128, 128], axes = [2], splits = None, moments = None, one_hot = None, **kwargs):
