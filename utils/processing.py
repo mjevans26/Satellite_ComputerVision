@@ -119,8 +119,12 @@ def normalize(x, axes=[2], epsilon=1e-8, moments = None, splits = None):
 
     # if splits are given, apply tensor normalization to each split
     if splits:
-        tensors = tf.split(x, splits, axis = 2)
+        splitLen = sum(splits)
+        toNorm = x[:,:,0:splitLen]
+        dontNorm = x[:,:,splitLen:]
+        tensors = tf.split(toNorm, splits, axis = 2)
         normed = [normalize_tensor(tensor) for tensor in tensors]
+        normed.append(dontNorm)
         # gather normalized splits into single tensor
         x_normed = tf.concat(normed, axis = 2)
     else:
