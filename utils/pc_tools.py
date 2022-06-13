@@ -14,6 +14,11 @@ from dask.distributed import wait, Client
 from pystac_client import Client as pcClient
 import stackstac
 
+wd = os.getcwd()
+path.append(wd)
+
+from prediction_tools import extract_chips, predict_chips
+
 def get_pc_imagery(aoi, dates, crs):
     """Get S2 imagery from Planetary Computer. REQUIRES a valid API token be added to the os environment
     Args:
@@ -125,6 +130,89 @@ def get_pc_imagery(aoi, dates, crs):
     cluster.shutdown()
     # return the before and after images as numpy arrays
     return bef_clip.data, aft_clip.data
+
+def test_PC_connection():
+    """Test our ability to retrieve satellite imagery from Planetary Computer
+    
+    Without any processing, return the first Sentinel-2 image from a date range at
+    a known location
+    """
+        # Creates the Dask Scheduler. Might take a minute.
+    cluster = GatewayCluster(
+        address = "https://pccompute.westeurope.cloudapp.azure.com/compute/services/dask-gateway",
+        proxy_address = "gateway://pccompute-dask.westeurope.cloudapp.azure.com:80",
+        auth = 'jupyterhub',
+        worker_cores = 4
+    )
+
+    client = cluster.get_client()
+    
+    # allow our dask cluster to adaptively scale from 2 to 24 nodes
+    cluster.adapt(minimum=2, maximum=24)
+    
+    # define fixed start and end date for summer 2021
+    before_dates = '2021-05-01/2021-08-01'
+
+    # connect to the planetary computer catalog
+    catalog = pcClient.open("https://planetarycomputer.microsoft.com/api/stac/v1")
+    sentinel = catalog.get_child('sentinel-2-l2a')
+    
+    search = catalog.search(
+        collections = ['sentinel-2-l2a'],
+        datetime=before_dates,
+        intersects=aoi
+    )
+
+    search_list = list(search_before.get_items())
+
+    least_cloudy = [item for item in search_list if item.properties['eo:cloud_cover'] <= 10]
+
+    items = [pc.sign_item(i).to_dict() for i in least_cloudy]
+    
+    # sanity check to make sure we have retrieved and authenticated items fro planetary computer
+    ilen = len(items)
+    print(f'{ilen} images in collection')
+
+    # convert provided coordinates into appropriate format for clipping xarray imagery
+    bounds = [-76.503778, 38.988321, -76.530776, 38.988322]
+    
+    # create an 
+    data = (
+        stackstac.stack(
+            items[0],
+            epsg = 32617,
+            bounds_latlon = bounds,
+            sortby_date = 'desc',
+            # resolution=10,
+            assets=['B02', 'B03', 'B04', 'B08'],  # blue, green, red, nir
+            # chunks is for parallel computing on Dask cluster, only refers to spatial dimension
+            chunksize= 'auto' # don't make smaller than native S2 tiles (100x100km)
+        )
+        .where(lambda x: x > 0, other=np.nan)  # sentinel-2 uses 0 as nodata
+        .assign_coords(band = lambda x: x.common_name.rename("band"))  # use common names
+    )
+    
+    # reduce the before and after image collections to a single image using first valid pixel
+    before = data.mosaic(dim="time")
+
+    # assign the native sentinel-2 crs the resulting xarrays
+    bef = before.rio.set_crs(32617)
+    
+    # compute the result and load to local machine
+    bef_local = bef.compute()
+
+    # This non-distributed method seems to be working but timing out
+    # TODO: try changing chunk dimensions, try increasing timeout time of Webservice
+    # bd, ad = dask.compute(bef_clip, aft_clip)
+
+    # result_dict = wait([bef_clip, aft_clip], return_when = 'ALL_COMPLETED')
+    
+    # close our cluster
+    client.close()
+    cluster.shutdown()
+    # return the image as numpy arrays
+    return bef_local.data
+
 
 def run(aoi, dates, crs, m, buff = 128, kernel = 256):
     """Retrieve Sentinel-2 imagery from Microsoft Planetary Computer and run change detection
