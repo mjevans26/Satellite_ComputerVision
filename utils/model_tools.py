@@ -134,7 +134,7 @@ def decoder_block(input_tensor, concat_tensor, num_filters):
 	decoder = layers.Activation('relu')(decoder)
 	return decoder
 
-def get_binary_model(depth, optim, loss, mets, bias = None):
+def binary_unet(input_tensor, bias = None):
     """
     Build a U-Net model
     Parameters:
@@ -148,8 +148,8 @@ def get_binary_model(depth, optim, loss, mets, bias = None):
     if bias is not None:
         bias = tf.keras.initializers.Constant(bias)
         
-    inputs = layers.Input(shape=[None, None, depth]) # 256
-    encoder0_pool, encoder0 = encoder_block(inputs, 32) # 128
+    # inputs = layers.Input(shape=[None, None, depth]) # 256
+    encoder0_pool, encoder0 = encoder_block(input_tensor, 32) # 128
     encoder1_pool, encoder1 = encoder_block(encoder0_pool, 64) # 64
     encoder2_pool, encoder2 = encoder_block(encoder1_pool, 128) # 32
     encoder3_pool, encoder3 = encoder_block(encoder2_pool, 256) # 16
@@ -163,8 +163,48 @@ def get_binary_model(depth, optim, loss, mets, bias = None):
     logits = layers.Conv2D(1, (1, 1), activation='sigmoid', bias_initializer = bias, name = 'logits')(decoder0)
     # logits is a probability and classes is binary. in solar, "tf.cast(tf.greater(x, 0.9)" was used  to avoid too many false positives
     classes = layers.Lambda(lambda x: tf.cast(tf.greater(x, 0.5), dtype = tf.int32), name = 'classes')(logits)
-    model = models.Model(inputs=[inputs], outputs=[logits, classes])
+    # model = Model(inputs=[inputs], outputs=[logits, classes])
 
+    # model.compile(
+    #         optimizer=optim, 
+    #         loss = {'logits': loss},
+    #         #loss=losses.get(LOSS),
+    #         metrics=mets)
+
+    return [logits, classes]
+
+def get_binary_model(depth, optim, loss, mets, bias = None):
+    """
+    Build a U-Net model
+    Parameters:
+        depth (int): number of training features (i.e. bands)
+        optim (tf.keras.optimizer): keras optimizer
+        loss (tf.keras.loss): keras or custom loss function
+        mets (dict<tf.keras.metrics): dictionary of metrics for logits and classes. elements are lists of keras metrics
+    Returns:
+        tf.keras.model: compiled U-Net model
+    """
+    # if bias is not None:
+    #     bias = tf.keras.initializers.Constant(bias)
+        
+    # inputs = layers.Input(shape=[None, None, depth]) # 256
+    # encoder0_pool, encoder0 = encoder_block(inputs, 32) # 128
+    # encoder1_pool, encoder1 = encoder_block(encoder0_pool, 64) # 64
+    # encoder2_pool, encoder2 = encoder_block(encoder1_pool, 128) # 32
+    # encoder3_pool, encoder3 = encoder_block(encoder2_pool, 256) # 16
+    # encoder4_pool, encoder4 = encoder_block(encoder3_pool, 512) # 8
+    # center = conv_block(encoder4_pool, 1024) # center
+    # decoder4 = decoder_block(center, encoder4, 512) # 16
+    # decoder3 = decoder_block(decoder4, encoder3, 256) # 32
+    # decoder2 = decoder_block(decoder3, encoder2, 128) # 64
+    # decoder1 = decoder_block(decoder2, encoder1, 64) # 128
+    # decoder0 = decoder_block(decoder1, encoder0, 32) # 256
+    # logits = layers.Conv2D(1, (1, 1), activation='sigmoid', bias_initializer = bias, name = 'logits')(decoder0)
+    # # logits is a probability and classes is binary. in solar, "tf.cast(tf.greater(x, 0.9)" was used  to avoid too many false positives
+    # classes = layers.Lambda(lambda x: tf.cast(tf.greater(x, 0.5), dtype = tf.int32), name = 'classes')(logits)
+    # model = models.Model(inputs=[inputs], outputs=[logits, classes])
+    unet = binary_unet(inputs, bias)
+    model = models.Model(inputs = inputs, outputs = unet)
     model.compile(
             optimizer=optim, 
             loss = {'logits': loss},
@@ -251,6 +291,37 @@ def get_autoencoder(depth, optim, loss, mets):
             metrics=mets)
 
     return model
+
+def siamese_path(depth):
+  # specify the inputs for the feature extractor network
+  # define the first set of CONV => RELU => POOL => DROPOUT layers
+  inputs = Input(shape = (None, None, depth))
+  conv1 = Conv2D(64, (3, 3), padding="same", activation="relu")(inputs)
+  conv2 = Conv2D(64, (3, 3), padding="same", activation="relu")(conv1)
+  conv3 = Conv2D(64, (3, 3), padding ="same", activation="relu")(conv2)
+  concat = Concatenate(axis = -1)([conv1, conv2, conv3])
+  # build the model - returns a list of arrays
+  model = Model(inputs = inputs, outputs = concat)
+  # return the model to the calling function
+  return model
+
+def get_siamese_unet(depth, optim, loss, mets, bias = None):
+  midpoint = depth//2
+  input = Input((None, None, depth))
+  temporal = tf.stack([input[:, :, :, :midpoint], input[:, :, :, midpoint:]], axis = 1)
+  print(temporal.shape)
+  branch = siamese_path(midpoint)
+  bitemporal = TimeDistributed(branch)(temporal)
+  difference = tf.subtract(bitemporal[:,0,:,:,:], bitemporal[:,1,:,:,:])
+  unet_depth = difference.shape[-1]
+  unet = binary_unet(difference, bias)
+  model = Model(inputs = input, outputs = unet)
+  model.compile(
+        optimizer=optim, 
+        loss = {'logits': loss},
+        #loss=losses.get(LOSS),
+        metrics=mets)
+  return model  
 
 def make_confusion_matrix_data(tpl, model, multiclass = False):
   """Create data needed to construct a confusion matrix on model predictions
