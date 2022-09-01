@@ -339,15 +339,15 @@ def make_confusion_matrix_data(tpl, model, multiclass = False):
   predicted = model.predict(tpl[0], verbose = 1)
   print(len(predicted))
       # some models will outputs probs and classes as a list
-  print(type(preds))
-  if type(preds) == list:
-      print(preds[0].shape)
-      preds = preds[0]
+  print(type(predicted))
+  if type(predicted) == list:
+      print(predicted[0].shape)
+      preds = predicted[0]
       # in this case, concatenate list elments into a single 4d array along last dimension
     #   preds = np.concatenate(preds, axis = 3)
   else:
-      print(preds.shape)
-      preds = preds[0,:,:,:]
+      print(predicted.shape)
+      preds = predicted[0,:,:,:]
   labs = tpl[1]
 
   if multiclass:
@@ -393,7 +393,7 @@ def make_confusion_matrix(dataset, model, multiclass = False):
   print(i)
   return con_mat
 
-def retrain_model(model_file, checkpoint, eval_data, metric, weights_file = None, custom_objects = None, lr = None):
+def retrain_model(model_file, checkpoint, eval_data, metric, weights_file = None, custom_objects = None, lr = None, freeze=False):
     """
     Load a previously trained model and continue training
     Parameters:
@@ -432,5 +432,7 @@ def retrain_model(model_file, checkpoint, eval_data, metric, weights_file = None
     if not lr:
       lr = backend.eval(m.optimizer.learning_rate)
     backend.set_value(m.optimizer.learning_rate, lr)
-    
+    if freeze:
+      for layer in m.layers[:-1]:
+        layer.trainable = False
     return m, checkpoint

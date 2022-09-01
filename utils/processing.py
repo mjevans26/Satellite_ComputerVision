@@ -204,7 +204,12 @@ def to_tuple(inputs, features, response, axes = [2], splits = None, one_hot = No
 #    one_hot = kwargs.get('one_hot')
 #    splits = kwargs.get('splits')
 #    moments = kwargs.get('moments')
-    
+
+    # If custom preprocessing functions are specified add respective bands
+    for fxn in kwargs.values():
+        der = fxn(inputs)
+        inputs = der
+
 #    inputsList = [inputs.get(key) for key in features + [response]]
     if type(response) == dict:
         depth = list(response.values())[0]
@@ -225,13 +230,6 @@ def to_tuple(inputs, features, response, axes = [2], splits = None, one_hot = No
     bands = tf.transpose(tf.stack(featList, axis = 0), [1,2,0])
     bands = aug_color(bands)
     bands = normalize(bands, axes = axes, moments = moments, splits = splits)
-    
-    # If custom preprocessing functions are specified add respective bands
-
-    for fxn in kwargs.values():
-        der = fxn(inputs)
-        der = tf.expand_dims(der, axis = 2)
-        bands = tf.concat([bands, der], axis = 2)
     
     if one_hot:
       hotStack = tf.concat(hotList, axis = 2)
