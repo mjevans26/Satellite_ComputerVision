@@ -6,12 +6,12 @@ Created on Fri Mar 20 12:53:59 2020
 """
 
 import tensorflow as tf
-from tensorflow.python.keras import layers
-from tensorflow.python.keras import losses
-from tensorflow.python.keras import models
-from tensorflow.python.keras import metrics
-from tensorflow.python.keras import optimizers
-from tensorflow.python.keras import backend
+from tensorflow.keras import layers
+from tensorflow.keras import losses
+from tensorflow.keras import models
+from tensorflow.keras import metrics
+from tensorflow.keras import optimizers
+from tensorflow.keras import backend
 import numpy as np
 
 def gen_dice(y_true, y_pred, eps=1e-6, global_weights = None):
@@ -50,7 +50,7 @@ def gen_dice(y_true, y_pred, eps=1e-6, global_weights = None):
     # batchwise weight
     # ----------------
     # to use batch-wise weights, count how many of each class are present in each image, 
-        counts = tf.reduce_sum(y_true, axis=1)
+        counts = tf.reduce_sum(y_true, axis=-1)
         weights = 1. / (counts ** 2)
         # if there are zero, then assign them a fixed weight of eps
         weights = tf.where(tf.math.is_finite(weights), weights, eps)        
