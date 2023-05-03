@@ -16,7 +16,7 @@ import tensorflow as tf
 from matplotlib import pyplot as plt
 #import gsutil
 import rasterio as rio
-from utils.processing import normalize
+from utils.processing import normalize, rescale
 from rasterio.crs import CRS
 from rasterio.warp import transform_bounds
 from rasterio.transform import array_bounds 
@@ -164,7 +164,7 @@ def make_pred_dataset(file_list, features, kernel_shape = [256, 256], kernel_buf
             featList = [dic.get(key) for key in features]
         
         bands = tf.transpose(tf.stack(featList, axis = 0), [1,2,0])
-        bands = normalize(bands, axes = axes, moments = moments, splits = splits)
+        bands = rescale(bands, axes = axes, moments = moments, splits = splits)
             # If custom preprocessing functions are specified add respective bands
 
         for fxn in kwargs.values():
@@ -212,10 +212,10 @@ def callback_predictions(imageDataset, model, mixer, kernel_shape = [256, 256], 
     # Perform inference.
     predictions = model.predict(imageDataset, steps=patches, verbose=1)
     
-    # some models will outputs probs and classes as a list
+    # some models will outputs probs (B, H, W, NCLASSES) and classes (B, H, W) as a list
     if type(predictions) == list:
-        # in this case, concatenate list elments into a single 4d array along last dimension
-        predictions = np.concatenate(predictions, axis = -1)
+        # in this case lets just grab the probabilities
+        predictions = predictions[0]
         
     x_buffer = int(kernel_buffer[0] / 2)
     y_buffer = int(kernel_buffer[1] / 2)
@@ -225,8 +225,8 @@ def callback_predictions(imageDataset, model, mixer, kernel_shape = [256, 256], 
     x = 1
     for prediction in predictions:
       print('Writing patch ' + str(x) + '...')
-      # lets just write probabilities, classes can be calculated post processing if not present already
-      patch = prediction[y_buffer:y_size, x_buffer:x_size, :]
+      # write probability of target class (i.e. 1), classes can be calculated post processing if not present already
+      patch = prediction[y_buffer:y_size, x_buffer:x_size, 1]
 #      predPatch = np.add(np.argmax(prediction, axis = 2), 1)
 #      probPatch = np.max(prediction, axis = 2)
 #      predPatch = predPatch[x_buffer:x_buffer+KERNEL_SIZE, y_buffer:y_buffer+KERNEL_SIZE]

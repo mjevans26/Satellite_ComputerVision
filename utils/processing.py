@@ -281,7 +281,7 @@ def to_tuple(inputs, features, response, axes = [2], splits = None, one_hot = No
     # stack, transpose, augment, and normalize continuous bands
     bands = tf.transpose(tf.stack(featList, axis = 0), [1,2,0])
     bands = aug_color(bands)
-    bands = normalize(bands, axes = axes, moments = moments, splits = splits)
+    bands = rescale(bands, axes = axes, moments = moments, splits = splits)
     
     if one_hot:
       hotStack = tf.concat(hotList, axis = 2)
@@ -752,7 +752,7 @@ def add_harmonic(timeseries: np.ndarray):
     harmonic_timeseries = np.concatenate([timeseries, harmonics], axis = -1)
     return harmonic_timeseries
 
-class LSTMDataGenerator(Sequence):
+class LSTMDataGenerator(tf.keras.utils.Sequence):
     """Generates data for Keras
     Sequence based data generator. Suitable for building data generator for training and prediction.
     """
@@ -828,7 +828,7 @@ class LSTMDataGenerator(Sequence):
             print('normalized dims', normalized.shape)
             return normalized
 
-class HybridDataGenerator(Sequence):
+class HybridDataGenerator(tf.keras.utils.Sequence):
     """Generates data for Keras model with U-Net and LSTM branches
     Sequence based data generator. Suitable for building data generator for training and prediction.
     """
