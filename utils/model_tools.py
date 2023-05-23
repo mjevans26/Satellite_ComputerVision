@@ -546,7 +546,7 @@ def get_lstm_model(n_channels, n_time, optim, metrics, loss):
     )
     return model
 
-def get_hybrid_model(unet_dim, lstm_dim, n_classes, optim, metrics, loss):
+def get_hybrid_model(unet_dim, lstm_dim, n_classes, optim, metrics, loss, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2]):
     """Build and compile a hybrid U-Net/LSTM model in Keras
 
     Params
@@ -568,10 +568,11 @@ def get_hybrid_model(unet_dim, lstm_dim, n_classes, optim, metrics, loss):
     keras.models.Model
     """
     unet_input = layers.Input(shape=unet_dim)
+    unet_output = build_unet_layers(unet_input, filters = filters, factors = factors)
     lstm_input = layers.Input(shape=lstm_dim)
     lstm_output = build_lstm_layers(lstm_input)
-    unet_output = build_unet_layers(unet_input)
-    lstm_resized = layers.Resizing(unet_dim[0], unet_dim[1], 'nearest')(lstm_output)
+    lstm_dense = layers.Conv2D(filters[0], [1,1], activation = 'sigmoid', data_format = 'channels_last', padding = 'same')(lstm_output) # match n_filters from last unet layer
+    lstm_resized = layers.Resizing(unet_dim[0], unet_dim[1], 'nearest')(lstm_dense) # resizing raw lstm was blowing memory
     concat_layer = layers.concatenate([lstm_resized, unet_output], axis=-1)
     dense_layer = layers.Conv2D(n_classes, [1,1], activation = 'sigmoid', data_format = 'channels_last', padding = 'same')(concat_layer)
     model = models.Model(inputs = [unet_input, lstm_input], outputs = dense_layer)

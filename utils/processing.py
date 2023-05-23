@@ -833,9 +833,9 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
     Sequence based data generator. Suitable for building data generator for training and prediction.
     """
 
-    def __init__(self, s2files, naipfiles, labelfiles, lufiles, n_classes = 8,
+    def __init__(self, s2files, naipfiles, labelfiles, lufiles, lidarfiles = None, n_classes = 8,
                  to_fit=True, batch_size=32, unet_dim=(320, 320, 4), transitions = [(12,3), (11,3), (10,3), (9,8)],
-                 lstm_dim = (6, 32, 32, 6), shuffle=True, lidarfiles = None):
+                 lstm_dim = (6, 32, 32, 6), shuffle=True):
         """Class Initialization
 
         Params
@@ -902,7 +902,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         files_temp = [self.s2files[k] for k in indexes]
 
         # arrays come from PC in (T, C, H, W) format
-        arrays = [np.load(file) for file in files_temp]
+        arrays = [np.load(f) for f in files_temp]
         # creat a single (B, T, C, H, W) array
         batch = np.stack(arrays, axis = 0)
         # in case our incoming data is of different size than we want, define a trim amount
@@ -921,7 +921,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         # Find list of IDs
         files_temp = [self.naipfiles[k] for k in indexes]
         # arrays come from PC in (C, H, W) format
-        arrays = [np.load(file) for file in files_temp]
+        arrays = [np.load(f) for f in files_temp]
         # creat a single (B, C, H, W) array per batch
         batch = np.stack(arrays, axis = 0)
         in_shape = batch.shape
@@ -934,6 +934,18 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         # is 255 a nan value is landcover labels?
         reshaped[:,:,:,-1] = np.where(reshaped[:,:,:,-1] == 255, 0.0, reshaped[:,:,:,-1])
         normalized = reshaped/255.0
+        return normalized
+    
+    def _get_lidar_data(self, indexes):
+        files_temp = [self.lidarfiles[k] for k in indexes]
+        arrays = [np.load(f) for f in files_temp]
+        batch = np.stack(arrays, axis = 0)
+        in_shape = batch.shape
+        trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2) 
+        array = batch[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
+        reshaped = np.moveaxis(array, source = 1, destination = 3)
+        reshaped[:,:,:,-1] = np.where(reshaped[:,:,:,-1] == 255, 0.0, reshaped[:,:,:,-1])
+        normalized = reshaped/100.0
         return normalized
 
     def _process_y(self, indexes):
@@ -976,7 +988,13 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
 
         lstmData = self._get_s2_data(indexes)
 
-        unetData = self._get_naip_data(indexes)
+        naipData = self._get_naip_data(indexes)
+
+        if self.lidarfiles:
+            lidarData = self._get_lidar_data(indexes)
+            unetData = np.concatenate([naipData, lidarData], axis = -1)
+        else:
+            unetData = naipData
 
         labels = self._process_y(indexes)
 
