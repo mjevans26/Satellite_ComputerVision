@@ -1,5 +1,6 @@
 
 import json
+import Path
 import numpy as np
 import os
 from os.path import join
@@ -11,13 +12,140 @@ import rioxarray
 import planetary_computer as pc
 from dask_gateway import GatewayCluster
 from dask.distributed import wait, Client
-from pystac_client import Client as pcClient
+import pystac_client
 import stackstac
 
 wd = os.getcwd()
 path.append(wd)
 
 from prediction_tools import extract_chips, predict_chips
+
+from tensorflow.keras import models
+from azure.storage.blob import BlobClient
+
+def normalize_dataArray(da: xarray.DataArray, dim: int) -> xarray.DataArray:
+  """Normalize (mean = 0, sd = 1) values in a xarray DataArray along given axis
+  
+  Parameters
+  ---
+  da: xarray.DataArray
+    array to be normalized
+  dim: int
+    dimension along which to calculate mean and standard deviation
+    
+  Return
+  ---
+  xarray.DataArray: input array with values scaled to mean = 0 and sd = 1
+  """
+  mean = da.mean(dim = dim, skipna = True)
+  sd = da.std(dim = dim, skipna = True)
+  normalized = (da - mean)/(sd+0.000001)
+  return normalized
+
+def trim_dataArray(da, size: int) -> xarray.DataArray:: 
+  """Trim the remainder from x and y dimensions of a DataArray
+  
+  Parameters
+  ---
+  da: xarray:DataArray
+    input array to be trimmed
+  size: int
+    size of chunks in x and y dimension. remaining array x&y size will be evenly divisible by this value 
+  
+  Return:
+  xarray:DataArray: resized input array with x & y dimensions evenly divisible by 'size'
+  """
+  slices = {}
+  for coord in ["y", "x"]:
+      remainder = len(da.coords[coord]) % size
+      slice_ = slice(-remainder) if remainder else slice(None)
+      slices[coord] = slice_
+
+  trimmed = da.isel(**slices)
+  return trimmed
+
+def get_blob_model(model_blob_url: str, weights_blob_url: str, custom_objects: dic = None) -> tensorflow.keras.models.Model:
+  """Load a keras model from blob storage to local machine
+  
+  Provided urls to a model structure (.h5) and weights (.hdf5) files stored as azure blobs, download local copies of
+  files and use them to instantiate a trained keras model
+  
+  Parameters
+  ---
+  model_blob_url: str
+    authenticated url to the azure storage blob holding the model structure file
+  weights_blob_url: str
+    authenticated blob url to the azure storage blob holding the weights file
+  custom_objects: dic
+    optional, dictionary with named custom functions (usually loss fxns) needed to instatiate model
+   
+  Return
+  ---
+  tf.keras.models.Model: model with loaded weights
+  """
+  
+  wp = Path('weights.hdf5')
+  mp = Path('model.h5')
+
+  # if we haven't already downloaded the trained weights
+  if not wp.exists():
+    weights_client = BlobClient.from_blob_url(
+      blob_url = weights_blob_url
+      )
+    # write weights blob file to local 
+    with wp.open("wb") as f:
+      f.write(weights_client.download_blob().readall())
+  # if we haven't already downlaoded the model structure       
+  if not mp.exists():
+    model_client = BlobClient.from_blob_url(
+      blob_url = model_blob_url
+    )
+    # write the model structure to local file
+    with mp.open("wb") as f:
+       f.write(model_client.download_blob().readall())
+
+
+  # m = models.load_model(mp, custom_objects = {'get_weighted_bce': get_weighted_bce})
+  # m = get_binary_model(6, optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS)
+#     m = get_unet_model(nclasses = 2, nchannels = 6, optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS)
+  m = models.load_model(mp, custom_objects = custom_objects)
+  m.load_weights(wp)
+  return m
+  
+def predict_chunk(data: np.ndarray, model_blob_url: str, weights_blob_url: str, custom_objects: dic = None) -> np.ndarray:
+    # print('input shape', data.shape)
+    # print(np.max(data))
+    m = get_model(model_blob_url, weights_blob_url, custom_objects)
+    hwc = np.moveaxis(data, 0, -1)
+    # our model expects 4D data
+    nhwc = np.expand_dims(hwc, axis = 0)
+    # tensor = tf.constant(nhwc, shape = (1,384,384,4))
+    pred = m.predict(nhwc)
+    logits = np.squeeze(pred[0])
+    # predictions come out as 4d (0, W, H, 8)
+    # classes = np.squeeze(np.argmax(pred, axis = -1))
+    print('logits shape', logits.shape)
+    return logits
+
+def recursive_api_try(search: pystac_client.ItemSearch) -> pystac.Item:
+  """Recursively try to sign and return items from planetary computer STAC catalog
+  
+  Parameters
+  ---
+  search: pystac_client.ItemSearch
+    query to STAC endpoint from which to retrieve and sign items
+  Return
+  ---
+  pystac.Item: list of signed items from search
+  """
+    try:
+        collection = search.item_collection()
+        signed = [pc.sign(item).to_dict() for item in collection]
+    except pystac_client.exceptions.APIError as error:
+        print('APIError, trying again')
+        signed = recursive_api_try(search)
+    return signed
+
 
 def get_pc_imagery(aoi, dates, crs):
     """Get S2 imagery from Planetary Computer. REQUIRES a valid API token be added to the os environment
@@ -44,7 +172,7 @@ def get_pc_imagery(aoi, dates, crs):
     after_dates = dates[2]+'/'+dates[3]
 
     # connect to the planetary computer catalog
-    catalog = pcClient.open("https://planetarycomputer.microsoft.com/api/stac/v1")
+    catalog = pystac_client.Client().open("https://planetarycomputer.microsoft.com/api/stac/v1")
     sentinel = catalog.get_child('sentinel-2-l2a')
     
     search_before = catalog.search(
