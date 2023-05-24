@@ -1,6 +1,6 @@
 
 import json
-import Path
+from pathlib import Path
 import numpy as np
 import os
 from os.path import join
