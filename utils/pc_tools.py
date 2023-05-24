@@ -8,7 +8,7 @@ from os.path import join
 from glob import glob
 
 import xarray as xr
-import rio
+import rasterio as rio
 
 import planetary_computer as pc
 from dask_gateway import GatewayCluster
