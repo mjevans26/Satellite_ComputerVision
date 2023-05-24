@@ -42,7 +42,7 @@ def normalize_dataArray(da: xarray.DataArray, dim: str) -> xarray.DataArray:
   normalized = (da - mean)/(sd+0.000001)
   return normalized
 
-def trim_dataArray(da, size: int) -> xarray.DataArray:: 
+def trim_dataArray(da, size: int) -> xarray.DataArray: 
   """Trim the remainder from x and y dimensions of a DataArray
   
   Parameters
