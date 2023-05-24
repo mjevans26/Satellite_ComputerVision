@@ -569,11 +569,12 @@ def get_hybrid_model(unet_dim, lstm_dim, n_classes, optim, metrics, loss, filter
     """
     unet_input = layers.Input(shape=unet_dim)
     unet_output = build_unet_layers(unet_input, filters = filters, factors = factors)
+    unet_dense = layers.Conv2D(n_classes, [1,1], activation = 'sigmoid', data_format = 'channels_last', padding = 'same')(unet_output)
     lstm_input = layers.Input(shape=lstm_dim)
     lstm_output = build_lstm_layers(lstm_input)
-    lstm_dense = layers.Conv2D(filters[0], [1,1], activation = 'sigmoid', data_format = 'channels_last', padding = 'same')(lstm_output) # match n_filters from last unet layer
+    lstm_dense = layers.Conv2D(n_classes, [1,1], activation = 'sigmoid', data_format = 'channels_last', padding = 'same')(lstm_output) # match n_filters from last unet layer
     lstm_resized = layers.Resizing(unet_dim[0], unet_dim[1], 'nearest')(lstm_dense) # resizing raw lstm was blowing memory
-    concat_layer = layers.concatenate([lstm_resized, unet_output], axis=-1)
+    concat_layer = layers.concatenate([lstm_resized, unet_dense], axis=-1)
     dense_layer = layers.Conv2D(n_classes, [1,1], activation = 'sigmoid', data_format = 'channels_last', padding = 'same')(concat_layer)
     model = models.Model(inputs = [unet_input, lstm_input], outputs = dense_layer)
     model.compile(
