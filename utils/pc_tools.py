@@ -70,7 +70,7 @@ def trim_dataArray(da: xr.DataArray, size: int) -> xr.DataArray:
   trimmed = da.isel(**slices)
   return trimmed
 
-def get_blob_model(model_blob_url: str, weights_blob_url: str, custom_objects: dic = None) -> tensorflow.keras.models.Model:
+def get_blob_model(model_blob_url: str, weights_blob_url: str, custom_objects: dict = None) -> tensorflow.keras.models.Model:
   """Load a keras model from blob storage to local machine
   
   Provided urls to a model structure (.h5) and weights (.hdf5) files stored as azure blobs, download local copies of
