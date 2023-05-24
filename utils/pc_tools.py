@@ -16,10 +16,14 @@ from dask.distributed import wait, Client
 import pystac_client
 import stackstac
 
-wd = os.getcwd()
-print(wd)
-sys.path.append(wd)
-
+FILE = Path(__file__).resolve() # full path to the current file, including extension
+print('filepath', FILE)
+ROOT = FILE.parents[0]  # list of upstream directories containing file
+print('root', ROOT)
+REL = Path(os.path.relpath(ROOT, Path.cwd()))
+if str(REL) not in sys.path:
+    sys.path.append(str(REL))  # add REL to PATH
+ 
 from prediction_tools import extract_chips, predict_chips
 
 from tensorflow.keras import models
