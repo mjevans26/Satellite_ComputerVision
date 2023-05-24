@@ -73,7 +73,7 @@ def trim_dataArray(da: xr.DataArray, size: int) -> xr.DataArray:
   trimmed = da.isel(**slices)
   return trimmed
 
-def get_blob_model(model_blob_url: str, weights_blob_url: str, custom_objects: dict = None) -> models.Model:
+def get_blob_model(model_blob_url: str, weights_blob_url: str = None, custom_objects: dict = None) -> models.Model:
   """Load a keras model from blob storage to local machine
   
   Provided urls to a model structure (.h5) and weights (.hdf5) files stored as azure blobs, download local copies of
@@ -84,7 +84,7 @@ def get_blob_model(model_blob_url: str, weights_blob_url: str, custom_objects: d
   model_blob_url: str
     authenticated url to the azure storage blob holding the model structure file
   weights_blob_url: str
-    authenticated blob url to the azure storage blob holding the weights file
+    optional, authenticated blob url to the azure storage blob holding a separate weights file
   custom_objects: dic
     optional, dictionary with named custom functions (usually loss fxns) needed to instatiate model
    
@@ -92,18 +92,9 @@ def get_blob_model(model_blob_url: str, weights_blob_url: str, custom_objects: d
   ---
   tf.keras.models.Model: model with loaded weights
   """
-  
-  wp = Path('weights.hdf5')
-  mp = Path('model.h5')
 
-  # if we haven't already downloaded the trained weights
-  if not wp.exists():
-    weights_client = BlobClient.from_blob_url(
-      blob_url = weights_blob_url
-      )
-    # write weights blob file to local 
-    with wp.open("wb") as f:
-      f.write(weights_client.download_blob().readall())
+  mp = Path('model.h5')
+  wp = Path('weights.hdf5')
   # if we haven't already downlaoded the model structure       
   if not mp.exists():
     model_client = BlobClient.from_blob_url(
@@ -112,7 +103,15 @@ def get_blob_model(model_blob_url: str, weights_blob_url: str, custom_objects: d
     # write the model structure to local file
     with mp.open("wb") as f:
        f.write(model_client.download_blob().readall())
-
+  
+  if weights_blob_url and not wp.exists():  
+  # if we haven't already downloaded the trained weights
+    weights_client = BlobClient.from_blob_url(
+      blob_url = weights_blob_url
+      )
+    # write weights blob file to local 
+    with wp.open("wb") as f:
+      f.write(weights_client.download_blob().readall())
 
   # m = models.load_model(mp, custom_objects = {'get_weighted_bce': get_weighted_bce})
   # m = get_binary_model(6, optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS)
