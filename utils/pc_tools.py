@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import numpy as np
 import os
+import sys
 from os.path import join
 from glob import glob
 
@@ -16,7 +17,7 @@ import pystac_client
 import stackstac
 
 wd = os.getcwd()
-path.append(wd)
+sys.path.append(wd)
 
 from prediction_tools import extract_chips, predict_chips
 
