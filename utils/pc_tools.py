@@ -117,7 +117,9 @@ def get_blob_model(model_blob_url: str, weights_blob_url: str = None, custom_obj
   # m = get_binary_model(6, optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS)
 #     m = get_unet_model(nclasses = 2, nchannels = 6, optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS)
   m = models.load_model(mp, custom_objects = custom_objects)
-  m.load_weights(wp)
+  
+  if wp.exists:
+        m.load_weights(wp)
   return m
   
 def predict_chunk(data: np.ndarray, model_blob_url: str, weights_blob_url: str, custom_objects: dict = None) -> np.ndarray:
