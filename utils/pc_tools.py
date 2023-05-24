@@ -8,7 +8,7 @@ from os.path import join
 from glob import glob
 
 import xarray as xr
-import rioxarray
+import rio
 
 import planetary_computer as pc
 from dask_gateway import GatewayCluster
@@ -29,7 +29,7 @@ from prediction_tools import extract_chips, predict_chips
 from tensorflow.keras import models
 from azure.storage.blob import BlobClient
 
-def normalize_dataArray(da: xarray.DataArray, dim: str) -> xarray.DataArray:
+def normalize_dataArray(da: xr.DataArray, dim: str) -> xr.DataArray:
   """Normalize (mean = 0, sd = 1) values in a xarray DataArray along given axis
   
   Parameters
@@ -48,7 +48,7 @@ def normalize_dataArray(da: xarray.DataArray, dim: str) -> xarray.DataArray:
   normalized = (da - mean)/(sd+0.000001)
   return normalized
 
-def trim_dataArray(da, size: int) -> xarray.DataArray: 
+def trim_dataArray(da: xr.DataArray, size: int) -> xr.DataArray: 
   """Trim the remainder from x and y dimensions of a DataArray
   
   Parameters
