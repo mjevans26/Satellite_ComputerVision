@@ -23,15 +23,15 @@ from prediction_tools import extract_chips, predict_chips
 from tensorflow.keras import models
 from azure.storage.blob import BlobClient
 
-def normalize_dataArray(da: xarray.DataArray, dim: int) -> xarray.DataArray:
+def normalize_dataArray(da: xarray.DataArray, dim: str) -> xarray.DataArray:
   """Normalize (mean = 0, sd = 1) values in a xarray DataArray along given axis
   
   Parameters
   ---
   da: xarray.DataArray
     array to be normalized
-  dim: int
-    dimension along which to calculate mean and standard deviation
+  dim: str
+    name of dimension along which to calculate mean and standard deviation (e.g. 'band')
     
   Return
   ---
