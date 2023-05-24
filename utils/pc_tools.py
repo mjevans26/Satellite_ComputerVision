@@ -14,7 +14,10 @@ import planetary_computer as pc
 from dask_gateway import GatewayCluster
 from dask.distributed import wait, Client
 import pystac_client
+import pystac
 import stackstac
+
+from tensorflow.keras import models
 
 FILE = Path(__file__).resolve() # full path to the current file, including extension
 print('filepath', FILE)
@@ -70,7 +73,7 @@ def trim_dataArray(da: xr.DataArray, size: int) -> xr.DataArray:
   trimmed = da.isel(**slices)
   return trimmed
 
-def get_blob_model(model_blob_url: str, weights_blob_url: str, custom_objects: dict = None) -> tensorflow.keras.models.Model:
+def get_blob_model(model_blob_url: str, weights_blob_url: str, custom_objects: dict = None) -> models.Model:
   """Load a keras model from blob storage to local machine
   
   Provided urls to a model structure (.h5) and weights (.hdf5) files stored as azure blobs, download local copies of
@@ -118,7 +121,7 @@ def get_blob_model(model_blob_url: str, weights_blob_url: str, custom_objects: d
   m.load_weights(wp)
   return m
   
-def predict_chunk(data: np.ndarray, model_blob_url: str, weights_blob_url: str, custom_objects: dic = None) -> np.ndarray:
+def predict_chunk(data: np.ndarray, model_blob_url: str, weights_blob_url: str, custom_objects: dict = None) -> np.ndarray:
     # print('input shape', data.shape)
     # print(np.max(data))
     m = get_model(model_blob_url, weights_blob_url, custom_objects)
