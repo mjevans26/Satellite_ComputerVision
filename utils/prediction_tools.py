@@ -16,7 +16,7 @@ import tensorflow as tf
 from matplotlib import pyplot as plt
 #import gsutil
 import rasterio as rio
-from Satellite_ComputerVision.utils.processing import normalize, rescale
+from utils.processing import normalize, rescale
 from rasterio.crs import CRS
 from rasterio.warp import transform_bounds
 from rasterio.transform import array_bounds 

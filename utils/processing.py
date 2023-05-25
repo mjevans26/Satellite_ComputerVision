@@ -6,6 +6,7 @@ Created on Fri Mar 20 10:50:44 2020
 """
 import tensorflow as tf
 import numpy as np
+from random import shuffle, randint, uniform
 
 def calc_ndvi(input):
   """Caclulate NDVI from Sentinel-2 data
@@ -515,7 +516,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
 
         return img_normed
 
-    def _rescale(self, img, axes = -1, epsilon=1e-8):
+    def _rescale(self, img, axes = -1, epsilon=1e-8, moments = None, splits = None):
         """
         Rescale incoming image patch to [0,1] based on min and max values
         
@@ -614,7 +615,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         # cast the labels to int
         int_labels = y.astype(int)
         # reduce the number of classes from 12 to 8
-        merged_labels = merge_classes(int_labels, self.trans)
+        merged_labels =  merge_classes(int_labels, self.trans, int_labels)
         # shift range of categorical labels from [1, n_classes] to [0, n_classes]
         zeroed = merged_labels - 1
         # create one-hot representation of classes
