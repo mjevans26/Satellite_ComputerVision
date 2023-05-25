@@ -9,6 +9,8 @@ from glob import glob
 
 import xarray as xr
 import rasterio as rio
+import rioxarray
+from pyproj import CRS
 
 import planetary_computer as pc
 from dask_gateway import GatewayCluster
@@ -16,6 +18,7 @@ from dask.distributed import wait, Client
 import pystac_client
 import pystac
 import stackstac
+import stac_vrt
 
 from tensorflow.keras import models
 
@@ -72,6 +75,26 @@ def trim_dataArray(da: xr.DataArray, size: int) -> xr.DataArray:
 
   trimmed = da.isel(**slices)
   return trimmed
+
+def naip_mosaic(naips: list, crs; int):
+    """ mosaic a list of naip stac items into a single xarray DataArray
+    Parameters
+    --------
+    naips: list:
+        list of naip image items in stac format
+    crs: int
+        epsg code specifying the common crs to project naip images
+    Return
+    ---
+    xr.DataArray: single array of mosaicd naip images
+    """
+    data = [item for item in naips if item['properties']['proj:epsg'] == crs]
+    crs = CRS.from_user_input(26918)
+    naipStac = stac_vrt.build_vrt(
+        data, block_width=512, block_height=512, data_type="Byte", crs = crs)
+    naipImage = rioxarray.open_rasterio(naipStac, chunks = (4, 8192, 8192), lock = False)
+    # reprojected = naipImage.rio.reproject('EPSG:4326')
+    return(naipImage)
 
 def get_blob_model(model_blob_url: str, weights_blob_url: str = None, custom_objects: dict = None) -> models.Model:
   """Load a keras model from blob storage to local machine
