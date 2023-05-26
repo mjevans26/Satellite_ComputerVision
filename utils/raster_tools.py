@@ -41,6 +41,31 @@ def convert(size, box):
     h = h0*dh
     return (x,y,w,h)
 
+def convert_pt(geometry, out_crs, src_transform):
+    """ change a point to another crs
+    Parameters
+    ---------
+    geometry: gpd:GeoSeries
+        containing points
+    out_crs: int
+    
+    Return
+    ---
+    tpl: 
+    """
+    
+    pt = geometry.to_crs(out_crs)
+    coords = convert_poly_coords(pt.iloc[0], affine_obj=src_transform, inverse=True,precision=None)
+    x,y = np.rint(coords.x), np.rint(coords.y)
+    return(x,y)
+
+def make_window(cx, cy, window_size):
+    x0 = round(cx - window_size//2)
+    y0 = round(cy - window_size//2)
+    x1 = round(x0 + window_size)
+    y1 = round(y0 + window_size)
+    return (x0, y0, x1, y1)
+
 def get_geo_transform(raster_src):
     """Get the geotransform for a raster image source.
     Arguments
