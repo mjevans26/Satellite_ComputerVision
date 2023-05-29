@@ -30,7 +30,6 @@ if str(REL) not in sys.path:
  
 from prediction_tools import extract_chips, predict_chips
 
-from tensorflow.keras import models
 from azure.storage.blob import BlobClient, ContainerClient
 
 def export_blob(data: np.ndarray, container_client: ContainerClient, blobUrl: str) -> None:
