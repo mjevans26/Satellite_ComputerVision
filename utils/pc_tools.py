@@ -76,7 +76,7 @@ def trim_dataArray(da: xr.DataArray, size: int) -> xr.DataArray:
   trimmed = da.isel(**slices)
   return trimmed
 
-def naip_mosaic(naips: list, crs; int):
+def naip_mosaic(naips: list, crs: int):
     """ mosaic a list of naip stac items into a single xarray DataArray
     Parameters
     --------
