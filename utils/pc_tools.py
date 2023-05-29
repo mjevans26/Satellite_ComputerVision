@@ -100,24 +100,16 @@ def naip_mosaic(naips: list, crs: int):
     # reprojected = naipImage.rio.reproject('EPSG:4326')
     return(naipImage)
 
-def recursive_api_try(search: pystac_client.ItemSearch) -> pystac.Item:
-  """Recursively try to sign and return items from planetary computer STAC catalog
-  
-  Parameters
-  ---
-  search: pystac_client.ItemSearch
-    query to STAC endpoint from which to retrieve and sign items
-  Return
-  ---
-  pystac.Item: list of signed items from search
-  """
-  try:
-      collection = search.item_collection()
-      signed = [pc.sign(item).to_dict() for item in collection]
-  except pystac_client.exceptions.APIError as error:
-      print('APIError, trying again')
-      signed = recursive_api_try(search)
-  return signed
+def recursive_api_try(search):
+    try:
+        signed = planetary_computer.sign(search.get_all_items())
+        # collection = search.item_collection()
+        # print(len(collection), 'assets')
+        # signed = [planetary_computer.sign(item).to_dict() for item in collection]
+    except pystac_client.exceptions.APIError as error:
+        print('APIError, trying again')
+        signed = recursive_api_try(search)
+    return signed
 
 
 # def get_pc_imagery(aoi, dates, crs):
