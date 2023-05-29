@@ -64,7 +64,7 @@ def make_window(cx: int, cy:int, window_size: int) -> tpl:
     tpl: coordinates of top left (x0, y0) and bottom right (x1, y1) window points
     """
     x0 = round(cx - window_size//2)
-    y0 = round(cy - windo_size//2)
+    y0 = round(cy - window_size//2)
     x1 = round(cx + window_size//2)
     y1 = round(cy + window_size//2)
     return (x0, y0, x1, y1)
@@ -182,78 +182,6 @@ def convert_pt(geometry: gpd.GeoSeries, out_crs: int, src_transform: list):
     coords = convert_poly_coords(pt.iloc[0], affine_obj = src_transform, inverse = True, precision = None)
     x, y = np.rint(coords.x), np.rint(coords.y)
     return (x,y)
-
-def convert_poly_coords(geom, raster_src=None, affine_obj=None, inverse=False,
-                        precision=None):
-    """Georegister geometry objects currently in pixel coords or vice versa.
-    Arguments
-    ---------
-    geom : :class:`shapely.geometry.shape` or str
-        A :class:`shapely.geometry.shape`, or WKT string-formatted geometry
-        object currently in pixel coordinates.
-    raster_src : str, optional
-        Path to a raster image with georeferencing data to apply to `geom`.
-        Alternatively, an opened :class:`rasterio.Band` object or
-        :class:`osgeo.gdal.Dataset` object can be provided. Required if not
-        using `affine_obj`.
-    affine_obj: list or :class:`affine.Affine`
-        An affine transformation to apply to `geom` in the form of an
-        ``[a, b, d, e, xoff, yoff]`` list or an :class:`affine.Affine` object.
-        Required if not using `raster_src`.
-    inverse : bool, optional
-        If true, will perform the inverse affine transformation, going from
-        geospatial coordinates to pixel coordinates.
-    precision : int, optional
-        Decimal precision for the polygon output. If not provided, rounding
-        is skipped.
-    Returns
-    -------
-    out_geom
-        A geometry in the same format as the input with its coordinate system
-        transformed to match the destination object.
-    """
-
-    if not raster_src and not affine_obj:
-        raise ValueError("Either raster_src or affine_obj must be provided.")
-
-    if raster_src is not None:
-        affine_xform = get_geo_transform(raster_src)
-    else:
-        if isinstance(affine_obj, Affine):
-            affine_xform = affine_obj
-        else:
-            # assume it's a list in either gdal or "standard" order
-            # (list_to_affine checks which it is)
-            if len(affine_obj) == 9:  # if it's straight from rasterio
-                affine_obj = affine_obj[0:6]
-            affine_xform = list_to_affine(affine_obj)
-
-    if inverse:  # geo->px transform
-        affine_xform = ~affine_xform
-
-    if isinstance(geom, str):
-        # get the polygon out of the wkt string
-        g = shapely.wkt.loads(geom)
-    elif isinstance(geom, shapely.geometry.base.BaseGeometry):
-        g = geom
-    else:
-        raise TypeError('The provided geometry is not an accepted format. '
-                        'This function can only accept WKT strings and '
-                        'shapely geometries.')
-
-    xformed_g = shapely.affinity.affine_transform(g, [affine_xform.a,
-                                                      affine_xform.b,
-                                                      affine_xform.d,
-                                                      affine_xform.e,
-                                                      affine_xform.xoff,
-                                                      affine_xform.yoff])
-    if isinstance(geom, str):
-        # restore to wkt string format
-        xformed_g = shapely.wkt.dumps(xformed_g)
-    if precision is not None:
-        xformed_g = _reduce_geom_precision(xformed_g, precision=precision)
-
-    return xformed_gs
 
 def win_jitter(window_size, jitter_frac=0.1):
     '''get x and y jitter
