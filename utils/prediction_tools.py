@@ -16,7 +16,7 @@ import tensorflow as tf
 from matplotlib import pyplot as plt
 #import gsutil
 import rasterio as rio
-from utils.processing import normalize, rescale
+from utils.processing import normalize_tensor, rescale_tensor
 from rasterio.crs import CRS
 from rasterio.warp import transform_bounds
 from rasterio.transform import array_bounds 
@@ -164,7 +164,7 @@ def make_pred_dataset(file_list, features, kernel_shape = [256, 256], kernel_buf
             featList = [dic.get(key) for key in features]
         
         bands = tf.transpose(tf.stack(featList, axis = 0), [1,2,0])
-        bands = rescale(bands, axes = axes, moments = moments, splits = splits)
+        bands = rescale_tensor(bands, axes = axes, moments = moments, splits = splits)
             # If custom preprocessing functions are specified add respective bands
 
         for fxn in kwargs.values():

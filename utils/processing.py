@@ -6,7 +6,19 @@ Created on Fri Mar 20 10:50:44 2020
 """
 import tensorflow as tf
 import numpy as np
+import os
+import sys
 from random import shuffle, randint, uniform
+from pathlib import Path
+
+FILE = Path(__file__).resolve()
+ROOT = FILE.parents[0]
+DIR = Path(os.path.relpath(ROOT, Path.cwd()))
+
+if str(DIR) not in sys.path:
+    sys.path.append(str(DIR)) 
+
+from array_tools import merge_classes, normalize_array, rescale_array, aug_array_color, aug_array_morph, rearrange_timeseries, normalize_timeseries
 
 def calc_ndvi(input):
   """Caclulate NDVI from Sentinel-2 data
@@ -21,7 +33,7 @@ def calc_ndvi(input):
   ndvi = tf.divide(tf.subtract(nir, red), tf.add(epsilon, tf.add(nir,red)))
   return ndvi
 
-def aug_color(img):
+def aug_tensor_color(img):
     n_ch = tf.shape(img)[-1]
     contra_adj = 0.05
     bright_adj = 0.05
@@ -61,7 +73,7 @@ def augColor(x, contra_adj = 0.05, bright_adj = 0.05):
     x = tf.image.random_contrast(x, 0.7, 1.3)
     return x
   
-def aug_img(img):
+def aug_tensor_morph(img):
     """
     Perform image augmentation on tfRecords
     Parameters:
@@ -129,7 +141,7 @@ def add_harmonic(timeseries: np.ndarray):
     harmonic_timeseries = np.concatenate([timeseries, harmonics], axis = -1)
     return harmonic_timeseries
     
-def normalize(x, axes=[2], epsilon=1e-8, moments = None, splits = None):
+def normalize_tensor(x, axes=[2], epsilon=1e-8, moments = None, splits = None):
     """
     Standardize incoming image patches by mean and variance.
 
@@ -153,7 +165,7 @@ def normalize(x, axes=[2], epsilon=1e-8, moments = None, splits = None):
     """
     
     # define a basic function to normalize a 3d tensor
-    def normalize_tensor(x):
+    def normalize(x):
 #        shape = tf.shape(x).numpy()
         # if we've defined global or per-channel moments...
         if moments:
@@ -176,16 +188,16 @@ def normalize(x, axes=[2], epsilon=1e-8, moments = None, splits = None):
         toNorm = x[:,:,0:splitLen]
         dontNorm = x[:,:,splitLen:]
         tensors = tf.split(toNorm, splits, axis = 2)
-        normed = [normalize_tensor(tensor) for tensor in tensors]
+        normed = [normalize(tensor) for tensor in tensors]
         normed.append(dontNorm)
         # gather normalized splits into single tensor
         x_normed = tf.concat(normed, axis = 2)
     else:
-        x_normed = normalize_tensor(x)
+        x_normed = normalize(x)
 
     return x_normed 
 
-def rescale(img, axes = [2], epsilon=1e-8, moments = None, splits = None):
+def rescale_tensor(img, axes = [2], epsilon=1e-8, moments = None, splits = None):
     """
     Rescale incoming image patch to [0,1] based on min and max values
     
@@ -206,7 +218,7 @@ def rescale(img, axes = [2], epsilon=1e-8, moments = None, splits = None):
     Return:
         tensor: 3D tensor of same shape as input, with values [0,1]
     """
-    def rescale_tensor(img):
+    def rescale(img):
         if moments:
             minimum = np.array([tpl[0] for tpl in moments], dtype = 'float32')
             maximum = np.array([tpl[1] for tpl in moments], dtype = 'float32')
@@ -220,11 +232,11 @@ def rescale(img, axes = [2], epsilon=1e-8, moments = None, splits = None):
     # if splits are given, apply tensor normalization to each split
     if splits:
         tensors = tf.split(img, splits, axis = 2)
-        rescaled = [rescale_tensor(tensor) for tensor in tensors]
+        rescaled = [rescale(tensor) for tensor in tensors]
         # gather normalized splits into single tensor
         img_rescaled = tf.concat(rescaled, axis = 2)
     else:
-        img_rescaled = rescale_tensor(img)
+        img_rescaled = rescale(img)
         
     return img_rescaled
 
@@ -281,8 +293,8 @@ def to_tuple(inputs, features, response, axes = [2], splits = None, one_hot = No
 
     # stack, transpose, augment, and normalize continuous bands
     bands = tf.transpose(tf.stack(featList, axis = 0), [1,2,0])
-    bands = aug_color(bands)
-    bands = rescale(bands, axes = axes, moments = moments, splits = splits)
+    bands = aug_tensor_color(bands)
+    bands = rescale_tensor(bands, axes = axes, moments = moments, splits = splits)
     
     if one_hot:
       hotStack = tf.concat(hotList, axis = 2)
@@ -291,27 +303,12 @@ def to_tuple(inputs, features, response, axes = [2], splits = None, one_hot = No
       stacked = tf.concat([bands, res], axis = 2)
     
     # perform morphological augmentation
-    stacked = aug_img(stacked)
+    stacked = aug_tensor_morph(stacked)
     
     feats = stacked[:, :, :-res.shape[2]]
     labels = stacked[:, :, -res.shape[2]:]
     labels = tf.where(tf.greater(labels, 1.0), 1.0, labels)
     return feats, labels
-#    stacked = tf.stack(inputsList, axis=0)
-#    # Convert from CHW to HWC
-#    stacked = tf.transpose(stacked, [1, 2, 0])
-#    stacked = aug_img(stacked)
-#    #split input bands and labels
-#    bands = stacked[:,:,:len(features)]
-#    labels = stacked[:,:,len(features):]
-#    # in case labels are >1
-#    labels = tf.where(tf.greater(labels, 1.0), 1.0, labels)
-#    # perform color augmentation on input features
-#    bands = aug_color(bands)
-#    # standardize each patch of bands
-#    bands = normalize(bands, axes)
-#    # return the features and labels
-#    return bands, labels
 
 def get_dataset(files, ftDict, features, response, axes = [2], splits = None, one_hot = None, moments = None, **kwargs):
   """Function to read, parse and format to tuple a set of input tfrecord files.
@@ -375,41 +372,11 @@ def get_eval_dataset(files, ftDict, features, response, axes = [2], splits = Non
 	dataset = dataset.batch(1)
 	return dataset
 
-#def tup(param = 0, extra = 10):
-#    return param + extra
-#
-#def get_data(x, **kwargs):
-#    return tup(**kwargs) + x^2
-#
-#def get_train_data(x, y, **kwargs):
-#    return get_data(x, **kwargs) - y
-#    
-#get_train_data(2, 3, param = 1, extra = 3)
-
-def merge_classes(cond_array, trans, out_array):
-    """Reclassify categorical array values
-    Parameters
-    ---
-    cond_array: np.ndarray
-      array with values to be evaluated by conditional expression
-    trans: list[tpl]
-      tuples containing condition and value to return where true
-    array: np.ndarray
-      array to be returned where condition false
-    Returns
-    ---
-    np.darray
-        reclassified array same shape and size as input
-    """
-    for x,y in trans:
-      out_array[cond_array == x] = y
-    return out_array  
-
 class UNETDataGenerator(tf.keras.utils.Sequence):
     """Generates data for Keras
     Sequence based data generator. Suitable for building data generator for training and prediction.
     """
-    def __init__(self, files,
+    def __init__(self, labelfiles, s2files, naipfiles, lidarfiles = None, lufiles = None,
                  to_fit=True, batch_size=32, dim=(256, 256),
                  n_channels=4, n_classes = 8, shuffle=True,
                  splits = None, moments = None, translations = None):
@@ -424,7 +391,11 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         :param n_timesteps: number of multi-channel images
         :param shuffle: True to shuffle label indexes after every epoch
         """
-        self.files = files
+        self.s2files = s2files
+        self.naipfiles = naipfiles
+        self.lidarfiles = lidarfiles
+        self.labelfiles = labelfiles
+        self.lufiles = lufiles
         self.to_fit = to_fit
         self.batch_size = batch_size
         self.dim = dim
@@ -434,7 +405,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         self.splits = splits
         self.moments = moments
         self.trans = translations
-        self.indexes = np.arange(len(self.files))
+        self.indexes = np.arange(len(self.labelfiles))
         self.on_epoch_end()
 
         # do an initial shuffle for cases where the generator is called fresh at the start of each epoch
@@ -447,177 +418,75 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
 
         :return: number of batches per epoch
         """
-        return int(np.floor(len(self.files) / self.batch_size))
+        return int(np.floor(len(self.indexes) / self.batch_size))
 
     def on_epoch_end(self):
         """Updates indexes after each epoch
 
         """
         print('the generator knows the epoch ended')
-        self.indexes = np.arange(len(self.files))
+        self.indexes = np.arange(len(self.indexes))
         if self.shuffle == True:
             print('shuffling')
             np.random.shuffle(self.indexes)
 
-    def _normalize(self, img, axes=[2], epsilon=1e-8):
-        """
-        Standardize incoming image patches by mean and variance.
-
-        Moments can be calculated based on patch data by providing axes:      
-        To standardize each pixel use axes = [2]
-        To standardize each channel use axes = [0, 1]
-        To standardize globally use axes = [0, 1, 2]
-
-        To standardize by global, or per-channel moments supply a list of [mean, variance] tuples.
-        To standardize groups of channels separately, identify the size of each group. Groups of
-        channels must be stacked contiguously and group sizes must sum to the total # of channels
-        
-        Parameters:
-            img (ndarray): nD image 
-            axes (array): Array of ints. Axes along which to compute mean and variance, usually length n-1
-            epsilon (float): small number to avoid dividing by zero
-            moments (list<tpl>): list of global mean, std tuples for standardization
-            splits (list): size(s) of groups of features to be kept together
-        Return:
-            tensor: nD image tensor normalized by channels
-        """
-        
-        # define a basic function to normalize a 3d tensor
-        def normalize_array(img):
-    #        shape = tf.shape(x).numpy()
-            # if we've defined global or per-channel moments...
-            if self.moments:
-                # cast moments to arrays for mean and variance
-                mean = np.array([tpl[0] for tpl in self.moments], dtype = 'float32')
-                std = np.array([tpl[1] for tpl in self.moments], dtype = 'float32')
-            # otherwise, calculate moments along provided axes
-            else:
-                mean = np.nanmean(img, axes, keepdims = True)
-                std = np.nanstd(img, axes, keepdims = True)
-                # keepdims = True to ensure compatibility with input tensor
-
-            # normalize the input tensor
-            normed = (img - mean)/(std + epsilon)
-            return normed
-        
-
-        # if splits are given, apply tensor normalization to each split
-        if self.splits:
-            splitLen = sum(self.splits)
-            toNorm = img[:,:,0:splitLen]
-            dontNorm = img[:,:,splitLen:]
-            arrays = np.split(toNorm, self.splits, axis = -1)
-            normed = [normalize_array(array) for array in arrays]
-            normed.append(dontNorm)
-            # gather normalized splits into single tensor
-            img_normed = np.concatenate(normed, axis = -1)
-        else:
-            img_normed = normalize_array(img)
-
-        return img_normed
-
-    def _rescale(self, img, axes = -1, epsilon=1e-8, moments = None, splits = None):
-        """
-        Rescale incoming image patch to [0,1] based on min and max values
-        
-        Min, max can be calculated based on patch data by providing axes:      
-        To rescale each pixel use axes = [2]
-        To rescale each channel use axes = [0, 1]
-        To rescale globally use axes = [0, 1, 2]
-
-        To rescale by global, or per-channel moments supply a list of [mean, variance] tuples.
-        To rescale groups of channels separately, identify the size of each group. Groups of
-        channels must be stacked contiguously and group sizes must sum to the total # of channels
-        
-        Args:
-            img (tensor): 3D (H,W,C) image tensor
-            axes (list): axes along which to calculate min/max for rescaling
-            moments (list<tpl>): list of [min, max] tuples for standardization
-            splits (list): size(s) of groups of features to be kept together
-        Return:
-            tensor: 3D tensor of same shape as input, with values [0,1]
-        """
-        def rescale_array(img):
-            if self.moments:
-                minimum = np.array([tpl[0] for tpl in self.moments], dtype = 'float32')
-                maximum = np.array([tpl[1] for tpl in self.moments], dtype = 'float32')
-            else:
-                minimum = np.nanmin(img, axis = axes, keepdims = True)
-                maximum = np.nanmax(img, axis = axes, keepdims = True)
-            scaled = (img - minimum)/((maximum - minimum) + epsilon)
-    #        scaled = tf.divide(tf.subtract(img, minimum), tf.add(tf.subtract(maximum, minimum))
-            return scaled
-        
-        # if splits are given, apply tensor normalization to each split
-        if self.splits:
-            arrays = np.split(img, self.splits, axis = -1)
-            rescaled = [rescale_array(array) for array in arrays]
-            # gather normalized splits into single tensor
-            img_rescaled = np.concat(rescaled, axis = -1)
-        else:
-            img_rescaled = rescale_array(img)
-            
-        return img_rescaled
-
-    def _aug_color(self, img: np.ndarray) -> np.ndarray:
-        """Randomly change the brightness and contrast of an image
-        ---Parameters---
-            img np.ndarray:
-        ---Return---
-            np.ndarray: 
-        """
-        dims = len(img.shape)
-        n_ch = img.shape[-1]
-        axes = (0,1) if dims == 3 else (1,2)
-
-        contra_adj = 0.05
-        bright_adj = 0.05
-
-        ch_mean = np.nanmean(img, axis = axes, keepdims = True)
-        # print('channel means', ch_mean)
-        contra_mul = uniform(a = 1-contra_adj, b = 1+contra_adj)
-
-        bright_mul = uniform(a = 1 - bright_adj, b = 1+bright_adj)
-
-        recolored = (img - ch_mean) * contra_mul + (ch_mean * bright_mul)
+    def _get_x_data(self, files_temp):
+        # arrays come from PC in (C, H, W) format
+        arrays = [np.load(f) for f in files_temp]
+        # creat a single (B, C, H, W) array per batch
+        batch = np.stack(arrays, axis = 0)
+        in_shape = batch.shape
+        # in case our incoming data is of different size than we want, define a trim amount
+        trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2) 
+        # If necessary, trim data to (-1, dims[0], dims[1])
+        array = batch[:,:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
+        # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
+        reshaped = np.moveaxis(array, source = 1, destination = 3)
+        return reshaped
+    
+    def _get_naip_data(self, indexes):
+        files_temp = [self.naipfiles[k] for k in indexes]
+        naip = self._get_x_data(files_temp)
+        rescaled = naip/255.0
+        recolored = aug_array_color(rescaled)
         return recolored
+    
+    def _get_s2_data(self, indexes):
+        files_temp = [self.s2files[k] for k in indexes]
+        s2 = self._get_x_data(files_temp)
+        rescaled = s2/10000.0
+        recolored = aug_array_color(rescaled)
+        return recolored
+    
+    def _get_lidar_data(self, indexes):
+        files_temp = [self.lidarfiles[k] for k in indexes]
+        lidar = self._get_x_data(files_temp)
+        rescaled = lidar/100
+        return rescaled        
 
-    def _aug_img(self, img: np.ndarray) -> np.ndarray:
-        """
-        Perform morphological image augmentation on image array
-        Parameters:
-            img (np.ndarray): 4D or 3D channels last image array
-        Returns:
-            np.ndarray: 3D channels last image array 
-        """
-        dims = len(img.shape)
-        v_axis = 0 if dims == 3 else 1
-        h_axis = 1 if dims == 3 else 2
+    def _process_y(self, indexes):
+        # get label files for current batch
+        lc_files = [self.labelfiles[k] for k in indexes]
+        lc_arrays = [np.load(file) for file in lc_files]
+        lc = np.stack(lc_arrays, axis = 0) #(B, C, H, W)
+        int_labels = lc.astype(int)
 
-        # flip array up/down
-        x = np.flip(img, axis = v_axis)
-        # flip array left_right
-        x = np.flip(x, axis = h_axis)
-        x = np.rot90(x, uniform(0,4), axes = (v_axis, h_axis))
+        # reduce the number of classes 
+        merged_labels = merge_classes(cond_array = int_labels, trans = self.trans, out_array = int_labels)
+        
+        if self.lufiles:
+            lu_files = [self.lufiles[k] for k in indexes]
+            lu_arrays = [np.load(file) for file in lu_files]
+            lu = np.stack(lu_arrays, axis = 0) #(B, C, H, W)
+            merged_labels = merge_classes(cond_array = lu, trans = [(82,9), (84,10)], out_array = merged_labels)
 
-        return x
+        # If necessary, trim data to (-1, dims[0], dims[1])
+        in_shape = merged_labels.shape
+        trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2) 
+        array = merged_labels[:,:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
 
-    def _rescale_and_aug(self, x):
-        recolored = self._aug_color(x)
-        rescaled = self._rescale(recolored, axes = 2, moments = self.moments, splits = self.splits)
-        return rescaled
-
-    def _process_x(self, x):
-        processed = np.array([self._rescale_and_aug(img) for img in x])
-        return processed
-
-    def _process_y(self, y):
-        # cast the labels to int
-        int_labels = y.astype(int)
-        # reduce the number of classes from 12 to 8
-        merged_labels =  merge_classes(int_labels, self.trans, int_labels)
         # shift range of categorical labels from [1, n_classes] to [0, n_classes]
-        zeroed = merged_labels - 1
+        zeroed = array - 1
         # create one-hot representation of classes
         one_hot = tf.one_hot(zeroed, self.n_classes)
         # one_hot = to_one_hot(zeroed, self.n_classes)
@@ -631,127 +500,33 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         """
         # Generate indexes of the batch
         indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
+
+        if self.s2files:
+            s2Data = self._get_s2_data(indexes)
+
+        if self.naipfiles:
+            naipData = self._get_naip_data(indexes)
+
+        if self.lidarfiles:
+            lidarData = self._get_lidar_data(indexes)
+            xData = np.concatenate([naipData, lidarData], axis = -1)
+        else:
+            xData = naipData
+
+        labels = self._process_y(indexes)
         
-        # Find list of IDs
-        files_temp = [self.files[k] for k in indexes]
-        # arrays come from PC in (C, H, W) format
-        arrays = [np.load(file) for file in files_temp]
-        in_shape = arrays[0].shape
-        print('in shape', in_shape)
-        trim = ((in_shape[1] - self.dim[0])//2, (in_shape[2] - self.dim[1])//2) 
-        print('trim', trim)
-        # If necessary, trim data to (-1, dims[0], dims[1])
-        array = [arr[:,trim[0]:trim[0]+self.dim[0], trim[1]:trim[1]+self.dim[1]] for arr in arrays]
-
-        # creat a single (B, C, H, W) array per batch
-        batch = np.stack(array, axis = 0)
-        print('batch shape', batch.shape)
-        # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
-        reshaped = np.moveaxis(batch, source = 1, destination = 3)
-        # is 255 a nan value is landcover labels?
-        reshaped[:,:,:,-1] = np.where(reshaped[:,:,:,-1] == 255, 0.0, reshaped[:,:,:,-1])
-
         # perform morphological augmentation - expects a 3D (H, W, C) image array
-        augmented = np.array([aug_img(array) for array in reshaped])
+        stacked = np.concatenate([xData, labels], axis = -1)
+        morphed = aug_array_morph(stacked)
         # print('augmented max', np.nanmax(augmented, axis = (0,1,2)))
 
-        feats = augmented[:,:,:,0:self.n_channels]
-        labels = augmented[:,:,:,self.n_channels:]
-        print(np.sum(feats, axis = (1,2)))
-        feats = self._process_x(feats)
-        print('feat dims', feats.shape)        
-        one_hot = self._process_y(labels)
-        print('label dims', one_hot.shape)
+        feats = morphed[:,:,:,0:self.n_channels]
+        labels = morphed[:,:,:,self.n_channels:]
 
         if self.to_fit:
-            return feats, one_hot
+            return feats, labels
         else:
             return feats
-
-def normalize_timeseries(arr, maxval = 10000, minval = 0, axis = -1, e = 0.00001):
-  # normalize band values across timesteps
-  normalized = (arr-minval)/(maxval-minval)
-#   mn = np.nanmean(arr, axis = axis, keepdims = True)
-#   std = np.nanstd(arr, axis = axis, keepdims = True)
-#   normalized = (arr - mn)/(std+e)
-  # replace nans with zeros?
-  finite = np.where(np.isnan(normalized), 0.0, normalized)
-  return finite
-
-def rearrange_timeseries(arr: np.ndarray, nbands: int) -> np.ndarray:
-  """ Randomly rearange 3d images in a timeseries
-
-  Changes the startpoint of a temporal sequence of 3D images stored in a 4D array
-  while maintaining relative order.
-  
-  Parameters
-  ---
-  arr: np.ndarray
-    5D (B, T, H, W, C) array to be rearranged
-  nbands: int
-    size of the last array dimension corresponding to image bands/channels
-
-  Returns
-  ---
-  np.ndarray
-    5D array of same size/shape as input
-  """
-
-  # the number of time steps is in the 1st dimension if our data is (B, T, H, W, C)
-  timesteps = arr.shape[1]
-  # randomly pick one of the timesteps as the starting time
-  starttime = randint(0, timesteps-1)
-  # print('start', starttime)
-  # grab all timesteps leading up to the timestep corresponding to our random first
-  last = arr[:,0:starttime,:,:,:]
-  print('last shape', last.shape)
-  first = arr[:,starttime:timesteps,:,:,:]
-  print('start shape', first.shape)
-  rearranged = np.concatenate([first, last], axis = 1)
-  rearranged.shape == arr.shape
-  return(rearranged)
-
-def split_timeseries(arr: np.ndarray) -> tuple:
-  """Divide a timeseries of 3D images into a series of images and labels
-
-  Parameters
-  ---
-  arr: np.ndarray
-    5D (B, T, H, W, C) array to be split
-
-  Returns
-  ---
-  tuple
-    two 5D timeseries arrays
-  """
-
-  feats = arr[:,0:-1,:,:,:]
-  labels = arr[:,-1,:,:,0:nbands]
-
-  # confirm there are no all-nan images in labels
-  batch_sums = np.sum(labels, axis = (1,2,3))
-  if 0.0 in batch_sums:
-    print('all nan labels, reshuffling')
-    feats, labels = rearrange_timeseries(arr, nbands)
-
-  return(feats, labels)
-
-def sin_cos(t:int, freq:int = 6) -> tuple:
-    x = t/freq
-    theta = 2*math.pi * x
-    return (math.sin(theta), math.cos(theta))
-
-def add_harmonic(timeseries: np.ndarray):
-    """ add harmonic variables to an imagery timeseries. currently assumes first image is start of year
-    B, T, H, W, C
-    """
-    in_shape = timeseries.shape
-    timesteps = in_shape[1]
-    tpls = [sin_cos(t, timesteps) for t in range(timesteps)]
-    xys = [np.stack([np.full((in_shape[0], in_shape[2], in_shape[3]), x), np.full((in_shape[0], in_shape[2], in_shape[3]), y)], axis = -1) for x,y in tpls]
-    harmonics = np.stack(xys, axis = 1)
-    harmonic_timeseries = np.concatenate([timeseries, harmonics], axis = -1)
-    return harmonic_timeseries
 
 class LSTMDataGenerator(tf.keras.utils.Sequence):
     """Generates data for Keras
@@ -916,7 +691,8 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         reshaped = np.moveaxis(array, source = 2, destination = 4)
         print('reshaped shape', reshaped.shape)
         normalized = normalize_timeseries(reshaped, axis = 1)
-        return normalized
+        recolored = aug_array_color(normalized)
+        return recolored
 
     def _get_naip_data(self, indexes):
         # Find list of IDs
@@ -932,10 +708,9 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         array = batch[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
         # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
         reshaped = np.moveaxis(array, source = 1, destination = 3)
-        # is 255 a nan value is landcover labels?
-        reshaped[:,:,:,-1] = np.where(reshaped[:,:,:,-1] == 255, 0.0, reshaped[:,:,:,-1])
         normalized = reshaped/255.0
-        return normalized
+        recolored = aug_array_color(normalized)
+        return recolored
     
     def _get_lidar_data(self, indexes):
         files_temp = [self.lidarfiles[k] for k in indexes]
@@ -945,31 +720,29 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2) 
         array = batch[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
         reshaped = np.moveaxis(array, source = 1, destination = 3)
-        reshaped[:,:,:,-1] = np.where(reshaped[:,:,:,-1] == 255, 0.0, reshaped[:,:,:,-1])
         normalized = reshaped/100.0
         return normalized
 
     def _process_y(self, indexes):
         # get label files for current batch
         lc_files = [self.labelfiles[k] for k in indexes]
-        lu_files = [self.lufiles[k] for k in indexes]
-        lu_arrays = [np.load(file) for file in lu_files]
         lc_arrays = [np.load(file) for file in lc_files]
-        
-        
-        # cast the labels to int
-        lu = np.stack(lu_arrays, axis = 0) #(B, C, H, W)
         lc = np.stack(lc_arrays, axis = 0) #(B, C, H, W)
-        
         int_labels = lc.astype(int)
+
         # reduce the number of classes 
         merged_labels = merge_classes(cond_array = int_labels, trans = self.trans, out_array = int_labels)
-        y = merge_classes(cond_array = lu, trans = [(82,9), (84,10)], out_array = merged_labels)
+        
+        if self.lufiles:
+            lu_files = [self.lufiles[k] for k in indexes]
+            lu_arrays = [np.load(file) for file in lu_files]
+            lu = np.stack(lu_arrays, axis = 0) #(B, C, H, W)
+            merged_labels = merge_classes(cond_array = lu, trans = [(82,9), (84,10)], out_array = merged_labels)
 
         # If necessary, trim data to (-1, dims[0], dims[1])
-        in_shape = y.shape
+        in_shape = merged_labels.shape
         trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2) 
-        array = y[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
+        array = merged_labels[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
 
         # shift range of categorical labels from [1, n_classes] to [0, n_classes]
         zeroed = array - 1
