@@ -102,7 +102,7 @@ def naip_mosaic(naips: list, crs: int):
 
 def recursive_api_try(search):
     try:
-        signed = planetary_computer.sign(search.get_all_items())
+        signed = pc.sign(search.get_all_items())
         # collection = search.item_collection()
         # print(len(collection), 'assets')
         # signed = [planetary_computer.sign(item).to_dict() for item in collection]
