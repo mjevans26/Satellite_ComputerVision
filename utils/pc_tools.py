@@ -28,7 +28,7 @@ REL = Path(os.path.relpath(ROOT, Path.cwd()))
 if str(REL) not in sys.path:
     sys.path.append(str(REL))  # add REL to PATH
  
-from prediction_tools import extract_chips, predict_chips
+# from prediction_tools import extract_chips, predict_chips
 
 from azure.storage.blob import BlobClient, ContainerClient
 
