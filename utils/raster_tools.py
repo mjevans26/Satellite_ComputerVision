@@ -20,15 +20,21 @@ import warnings
 import random
 
 def convert(size, box):
-    '''
+    """
     Convert coordinates of a bounding box given in image pixels to
     normalized [0,1] yolo coordinates
+    
     Parameters
-      size (tpl<int,int>): height, width of image in pixels
-      box: (list[x0, y0, x1, y1]): corners of box in pixels
+    ---
+    size: tpl<int,int>
+        height, width of image in pixels
+    box: list[x0, y0, x1, y1]
+        corners of box in pixels
+        
     Return
+    ---
       tpl(int, int, int, int): normalized x,y centroid and width, height of box
-    '''
+    """
     dw = 1./size[1]
     dh = 1./size[0]
     xmid = (box[0] + box[2])/2.0
@@ -41,25 +47,22 @@ def convert(size, box):
     h = h0*dh
     return (x,y,w,h)
 
-def convert_pt(geometry, out_crs, src_transform):
-    """ change a point to another crs
+def make_window(cx, cy, window_size):
+    """ Create an array window arround a centroid
+    
     Parameters
-    ---------
-    geometry: gpd:GeoSeries
-        containing points
-    out_crs: int
+    ---
+    cx: int
+        centroid x coordinate
+    cy: int
+        centroid y coordinate
+    window_size: int
+        size of window size in pixels
     
     Return
     ---
-    tpl: 
+    tpl: coordinates of top left (x0, y0) and bottom right (y0, y1) of window
     """
-    
-    pt = geometry.to_crs(out_crs)
-    coords = convert_poly_coords(pt.iloc[0], affine_obj=src_transform, inverse=True,precision=None)
-    x,y = np.rint(coords.x), np.rint(coords.y)
-    return(x,y)
-
-def make_window(cx, cy, window_size):
     x0 = round(cx - window_size//2)
     y0 = round(cy - window_size//2)
     x1 = round(x0 + window_size)
@@ -160,6 +163,25 @@ def convert_poly_coords(geom, raster_src=None, affine_obj=None, inverse=False,
         xformed_g = _reduce_geom_precision(xformed_g, precision=precision)
 
     return xformed_g
+
+def convert_pt(geometry, out_crs, src_transform):
+    """ change a point to another crs
+    
+    Parameters
+    ---------
+    geometry: gpd:GeoSeries
+        containing points
+    out_crs: int
+        epsg code for the desired crs
+    Return
+    ---
+    tpl: x,y coordinates in new crs 
+    """
+    
+    pt = geometry.to_crs(out_crs)
+    coords = convert_poly_coords(pt.iloc[0], affine_obj=src_transform, inverse=True,precision=None)
+    x,y = np.rint(coords.x), np.rint(coords.y)
+    return (x,y)
 
 def convert_poly_coords(geom, raster_src=None, affine_obj=None, inverse=False,
                         precision=None):
