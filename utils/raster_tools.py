@@ -47,7 +47,7 @@ def convert(size, box):
     h = h0*dh
     return (x,y,w,h)
 
-def make_window(cx: int, cy:int, window_size: int) -> tpl:
+def make_window(cx: int, cy:int, window_size: int) -> tuple:
     """Create an array window around a centroid
     
     Parameters
@@ -164,7 +164,7 @@ def convert_poly_coords(geom, raster_src=None, affine_obj=None, inverse=False,
 
     return xformed_g
 
-def convert_pt(geometry: gpd.GeoSeries, out_crs: int, src_transform: list):
+def convert_pt(geometry: gpd.GeoSeries, out_crs: int, src_transform: list) -> tuple:
     """ Change a point to another crs
     
     Parameters
