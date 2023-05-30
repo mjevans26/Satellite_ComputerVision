@@ -6,6 +6,7 @@ import os
 import sys
 from os.path import join
 from glob import glob
+import io
 
 import xarray as xr
 import rasterio as rio
