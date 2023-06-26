@@ -119,7 +119,7 @@ def rescale_array(img, axes = -1, epsilon=1e-8, moments = None, splits = None):
         tensor: 3D tensor of same shape as input, with values [0,1]
     """
     def rescale(img):
-        if self.moments:
+        if moments:
             minimum = np.array([tpl[0] for tpl in moments], dtype = 'float32')
             maximum = np.array([tpl[1] for tpl in moments], dtype = 'float32')
         else:
