@@ -6,9 +6,10 @@ Created on Fri Dec  4 19:24:42 2020
 """
 import os
 from os.path import join
+import sys
 from sys import path
-path.append(os.path.join(path[0], 'scv'))
-print(path)
+from pathlib import Path
+
 # import ee
 import json
 import numpy as np
@@ -16,12 +17,22 @@ import tensorflow as tf
 from matplotlib import pyplot as plt
 #import gsutil
 import rasterio as rio
-from utils.processing import normalize_tensor, rescale_tensor
 from rasterio.crs import CRS
 from rasterio.warp import transform_bounds
 from rasterio.transform import array_bounds 
      
+FILE = Path(__file__).resolve() # full path to the current file, including extension
+print('filepath', FILE)
+ROOT = FILE.parents[0]  # list of upstream directories containing file
+print('root', ROOT)
+REL = Path(os.path.relpath(ROOT, Path.cwd()))
+print('rel', REL)
+if str(ROOT) not in sys.path:
+    path.append(str(ROOT))
+if str(REL) not in sys.path:
+    path.append(str(REL))  # add REL to PATH
 
+from processing import normalize_tensor, rescale_tensor
 # TODO: automate spliting of full GEE path
 # def doExport(image, features, scale, bucket, pred_base, pred_path, region, kernel_shape = [256, 256], kernel_buffer = [128,128]):
 #   """
@@ -72,7 +83,31 @@ from rasterio.transform import array_bounds
 #     print('Error with image export.')
 #   else:
 #     print('Image export completed.')
-    
+
+def generate_chip_indices(arr, buff = 128, kernel = 256):
+  """
+  Parameters
+  ---
+    arr: np.ndarray
+      3D array (H, W, C) for which indices should be generated
+    buff: int
+      size of pixels to be trimmed from chips
+    kernel: int
+      size of contiguous image chips
+  Return
+  ---
+    list::np.ndarray: list containing (y,x) index of chips upper left corner
+  """
+  H, W, C = arr.shape
+  side = buff + kernel
+  x_buff = y_buff = buff//2
+  
+  y_indices = list(range(y_buff, H - side, kernel))
+  x_indices = list(range(x_buff, W - side, kernel))
+
+  indices = [(y_index, x_index) for y_index in y_indices for x_index in x_indices]
+  return indices
+
 def extract_chips(arr, buff = 128, kernel = 256):
     """Break an array into (potentially) overlapping chips for analysis
     Arguments:
@@ -80,40 +115,43 @@ def extract_chips(arr, buff = 128, kernel = 256):
         buff (int): size of pixels to be trimmed from chips
         kernel (int): size of contiguous image chips
     Return:
-        tpl: list containing image chips of size (kernel+buff, kernel+buff) and list containing (y,x) index of chips upper left corner
+        list::np.ndarray: list containing image chips of size (kernel+buff, kernel+buff)
     """
     H, W, C = arr.shape
     side = buff + kernel
     x_buff = y_buff = buff//2
     chips = []
-    chip_indices = []
-    y_indices = list(range(y_buff, H - side, kernel))
-    x_indices = list(range(x_buff, W - side, kernel))
-    for y_index in y_indices:
-        for x_index in x_indices:
-            chip = arr[y_index-y_buff:y_index+kernel+y_buff, x_index-x_buff:x_index+kernel+x_buff, :]
-            chips.append(chip)
-            chip_indices.append((y_index, x_index))
-    
-    return chips, chip_indices
 
-def predict_chips(chips, chip_indices, template, m, kernel = 256, buff = 128):
+    chip_indices = generate_chip_indices(arr, buff, kernel)
+
+    for x, y in chip_indices:
+      chip = arr[y-y_buff:y+kernel+y_buff, x-x_buff:x+kernel+x_buff, :]
+      chips.append(chip)
+    
+    return chips
+
+def predict_chips(arr, chip_indices, template, m, kernel = 256, buff = 128):
     """Predict changes in image chips
     Arguments:
         chips (list): kernel+buff x kernel+buff pixel chips to be fed to U-Net model
         chip_indices (list): list of (y,x) tuples marking position of chip upper-left corner in output array
         m (keras.Model): model to be used to make predictions
-        template (ndarray): all-zero array to which predictions will be written
+        template (ndarray): 2D all-zero array to which predictions will be written
         buff (int): total number of pixels to be trimmed from output chips in x and y direction
         kernel (int): number of pixels in x and y retained in prediction chips
     Return:
         ndarray: 3D array of size output.shape containing change probabilities
     """
     y_buff = x_buff = buff//2
-    if len(chips) >= 1:
-        for i, (y, x) in enumerate(chip_indices):
-            preds = m.predict(np.array([chips[i]]), verbose = 0)
-            template[y:y+kernel, x:x+kernel] += preds[0][0, y_buff:(kernel + x_buff), x_buff:(kernel+x_buff),:]
+    if len(chip_indices) >= 1:
+        for y, x in chip_indices:
+            print(y,x)
+            chip = arr[y - y_buff:y+kernel+y_buff, x - x_buff:x + kernel + x_buff, :]
+            print(chip.shape)
+            # preds = m.predict(np.array([chips[i]]), verbose = 0)
+            preds = m.predict(np.array([chip]), verbose = 0)
+            print(preds.shape)
+            template[y:y+kernel, x:x+kernel] += preds[0, y_buff:(kernel + y_buff), x_buff:(kernel+x_buff), 0]
 
     return template
       
