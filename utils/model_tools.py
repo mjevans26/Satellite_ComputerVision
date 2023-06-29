@@ -14,6 +14,11 @@ from tensorflow.keras import optimizers
 from tensorflow.keras import backend
 from tensorflow.keras import activations
 import numpy as np
+from pathlib import Path
+from azure.storage.blob import ContainerClient, BlobClient
+import io
+import h5py
+import tempfile
 
 def gen_dice(y_true, y_pred, eps=1e-6, global_weights = None):
     """both tensors are [b, h, w, classes] and y_pred is in logit form
@@ -701,53 +706,70 @@ def retrain_model(model_file, checkpoint, eval_data, metric, weights_file = None
     return m, checkpoint
 
 def get_blob_model(model_blob_url: str, weights_blob_url: str = None, custom_objects: dict = None) -> models.Model:
-  """Load a keras model from blob storage to local machine
-  
-  Provided urls to a model structure (.h5) and weights (.hdf5) files stored as azure blobs, download local copies of
-  files and use them to instantiate a trained keras model
-  
-  Parameters
-  ---
-  model_blob_url: str
+    """Load a keras model from blob storage to local machine
+
+    Provided urls to a model structure (.h5) and weights (.hdf5) files stored as azure blobs, download local copies of
+    files and use them to instantiate a trained keras model
+
+    Parameters
+    ---
+    model_blob_url: str
     authenticated url to the azure storage blob holding the model structure file
-  weights_blob_url: str
+    weights_blob_url: str
     optional, authenticated blob url to the azure storage blob holding a separate weights file
-  custom_objects: dic
+    custom_objects: dic
     optional, dictionary with named custom functions (usually loss fxns) needed to instatiate model
-   
-  Return
-  ---
-  tf.keras.models.Model: model with loaded weights
-  """
 
-  mp = Path('model.h5')
-  wp = Path('weights.hdf5')
-  # if we haven't already downlaoded the model structure       
-  if not mp.exists():
-    model_client = BlobClient.from_blob_url(
-      blob_url = model_blob_url
-    )
-    # write the model structure to local file
-    with mp.open("wb") as f:
-       f.write(model_client.download_blob().readall())
-  
-  if weights_blob_url and not wp.exists():  
-  # if we haven't already downloaded the trained weights
-    weights_client = BlobClient.from_blob_url(
-      blob_url = weights_blob_url
-      )
-    # write weights blob file to local 
-    with wp.open("wb") as f:
-      f.write(weights_client.download_blob().readall())
+    Return
+    ---
+    tf.keras.models.Model: model with loaded weights
+    """
 
-  # m = models.load_model(mp, custom_objects = {'get_weighted_bce': get_weighted_bce})
-  # m = get_binary_model(6, optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS)
-#     m = get_unet_model(nclasses = 2, nchannels = 6, optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS)
-  m = models.load_model(mp, custom_objects = custom_objects)
-  
-  if weights_blob_url:
-        m.load_weights(wp)
-  return m
+    model_client = BlobClient.from_blob_url(blob_url = model_blob_url)
+    model_downloader = model_client.download_blob(0)
+
+    with io.BytesIO() as f:
+        model_downloader.readinto(f)
+        with h5py.File(f, 'r') as h5file:
+            m = models.load_model(h5file, custom_objects = custom_objects, compile = False)
+
+    if weights_blob_url:
+        weights_client = BlobClient.from_blob_url(blob_url = weights_blob_url)
+        weights_downloader = weights_client.download_blob(0)
+        with tempfile.NamedTemporaryFile(suffix = '.hdf5') as f:
+            weights_downloader.readinto(f)
+            m.load_weights(f.name)
+
+    # mp = Path('model.h5')
+    # print('local model file', mp)
+    # wp = Path('weights.hdf5')
+    # print('local weights file', wp)
+    # # if we haven't already downlaoded the model structure       
+    # if not mp.exists():
+    # model_client = BlobClient.from_blob_url(
+    #     blob_url = model_blob_url
+    # )
+    # # write the model structure to local file
+    # with mp.open("wb") as f:
+    #     f.write(model_client.download_blob().readall())
+
+    # if weights_blob_url and not wp.exists():  
+    # # if we haven't already downloaded the trained weights
+    # weights_client = BlobClient.from_blob_url(
+    #     blob_url = weights_blob_url
+    #     )
+    # # write weights blob file to local 
+    # with wp.open("wb") as f:
+    #     f.write(weights_client.download_blob().readall())
+
+    # # m = models.load_model(mp, custom_objects = {'get_weighted_bce': get_weighted_bce})
+    # # m = get_binary_model(6, optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS)
+    # #     m = get_unet_model(nclasses = 2, nchannels = 6, optim = OPTIMIZER, loss = get_weighted_bce, mets = METRICS)
+    # m = models.load_model(str(Path.cwd()/mp.name), custom_objects = custom_objects)
+
+    # if weights_blob_url:
+    #     m.load_weights(str(Path.cwd()/wp.name))
+    return m
   
 def predict_chunk(data: np.ndarray, model_blob_url: str, weights_blob_url: str = None, custom_objects: dict = None) -> np.ndarray:
     """Use a trained model to produce predictions on a single chunk
@@ -770,7 +792,7 @@ def predict_chunk(data: np.ndarray, model_blob_url: str, weights_blob_url: str =
     np.ndarray: predicted values generated by trained model
     """
     
-    # print('input shape', data.shape)
+    print('input shape', data.shape)
     # print(np.max(data))
     m = get_blob_model(model_blob_url = model_blob_url, weights_blob_url = weights_blob_url, custom_objects = custom_objects)
     hwc = np.moveaxis(data, 0, -1)

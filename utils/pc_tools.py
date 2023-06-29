@@ -1,6 +1,7 @@
 
 import json
 from pathlib import Path
+from importlib import reload
 import numpy as np
 import os
 import sys
@@ -13,7 +14,7 @@ import rasterio as rio
 import rioxarray
 from pyproj import CRS
 
-import planetary_computer as pc
+import planetary_computer
 from dask_gateway import GatewayCluster
 from dask.distributed import wait, Client
 import pystac_client
@@ -26,12 +27,18 @@ print('filepath', FILE)
 ROOT = FILE.parents[0]  # list of upstream directories containing file
 print('root', ROOT)
 REL = Path(os.path.relpath(ROOT, Path.cwd()))
+print('rel', REL)
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))
 if str(REL) not in sys.path:
     sys.path.append(str(REL))  # add REL to PATH
- 
-# from prediction_tools import extract_chips, predict_chips
 
-from azure.storage.blob import BlobClient, ContainerClient
+import prediction_tools
+reload(prediction_tools)
+from prediction_tools import extract_chips, predict_chips
+from model_tools import predict_chunk
+
+from azure.storage.blob import ContainerClient, BlobClient
 
 def export_blob(data: np.ndarray, container_client: ContainerClient, blobUrl: str) -> None:
     with io.BytesIO() as buffer:
@@ -103,7 +110,7 @@ def naip_mosaic(naips: list, crs: int):
 
 def recursive_api_try(search):
     try:
-        signed = pc.sign(search.get_all_items())
+        signed = planetary_computer.sign(search.get_all_items())
         # collection = search.item_collection()
         # print(len(collection), 'assets')
         # signed = [planetary_computer.sign(item).to_dict() for item in collection]
@@ -113,117 +120,107 @@ def recursive_api_try(search):
     return signed
 
 
-# def get_pc_imagery(aoi, dates, crs):
-#     """Get S2 imagery from Planetary Computer. REQUIRES a valid API token be added to the os environment
-#     Args:
-#         aoi: POLYGON geometry json
-#         dates (tpl): four YYYY-MM-DD date strings defining before and after
-#         crs (int): 4-digit epsg code representing coordinate reference system
-#     """
-#     # Creates the Dask Scheduler. Might take a minute.
-#     cluster = GatewayCluster(
-#         address = "https://pccompute.westeurope.cloudapp.azure.com/compute/services/dask-gateway",
-#         proxy_address = "gateway://pccompute-dask.westeurope.cloudapp.azure.com:80",
-#         auth = 'jupyterhub',
-#         worker_cores = 4
-#     )
+def get_s2_stac(dates, aoi):
+    """from a pystac client return a stac of s2 imagery
 
-#     client = cluster.get_client()
+    Parameters 
+    ----
+    client: pystac_client.Client()
+        pystac catalog from which to retrieve assets
+    dates: str
+        start/end dates
+    bbox: tpl
+        [xmin, ymin, xmax, ymax]
     
-#     # allow our dask cluster to adaptively scale from 2 to 24 nodes
-#     cluster.adapt(minimum=2, maximum=24)
+    Return
+    ---
+    stackstac.stac()
+    """
+    # connect to the planetary computer catalog
+    catalog = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
+
+    search = catalog.search(
+        collections = ['sentinel-2-l2a'],
+        datetime = dates,
+        intersects = aoi,
+        query={"eo:cloud_cover": {"lt": 10}} 
+    )
+
+    s2items = [planetary_computer.sign(item).to_dict() for item in list(search.get_items())]
+    s2 = s2items[0]
+    s2epsg = s2['properties']['proj:epsg']
+    s2Stac = (
+        stackstac.stack(
+            s2items,
+            epsg = s2epsg,
+            assets=["B02", "B03", "B04", "B08"],  # red, green, blue
+            chunksize=4096,
+            resolution=10,
+        )
+        .where(lambda x: x > 0, other=np.nan)  # sentinel-2 uses 0 as nodata
+        .assign_coords({'band':['B2', 'B3', 'B4', 'B8']})  # use GEE names that model expects
+    )
+
+    s2crs = s2Stac.attrs['crs']
+    s2projected = s2Stac.rio.set_crs(s2crs)
+
+    return s2projected
     
-#     # extract before and after dates from input in format required by PC
-#     before_dates = dates[0]+'/'+dates[1]
-#     after_dates = dates[2]+'/'+dates[3]
+def get_pc_imagery(aoi, dates, crs):
+    """Get S2 imagery from Planetary Computer. REQUIRES a valid API token be added to the os environment
+    Args:
+        aoi: POLYGON geometry json
+        dates (tpl): four YYYY-MM-DD date strings defining before and after
+        crs (int): 4-digit epsg code representing coordinate reference system
+    """
+    # Creates the Dask Scheduler. Might take a minute.
+    cluster = GatewayCluster(
+        address = "https://pccompute.westeurope.cloudapp.azure.com/compute/services/dask-gateway",
+        proxy_address = "gateway://pccompute-dask.westeurope.cloudapp.azure.com:80",
+        auth = 'jupyterhub',
+        worker_cores = 4
+    )
 
-#     # connect to the planetary computer catalog
-#     catalog = pystac_client.Client().open("https://planetarycomputer.microsoft.com/api/stac/v1")
-#     sentinel = catalog.get_child('sentinel-2-l2a')
+    client = cluster.get_client()
     
-#     search_before = catalog.search(
-#         collections = ['sentinel-2-l2a'],
-#         datetime=before_dates,
-#         intersects=aoi
-#     )
-
-#     search_after = catalog.search(
-#         collections = ['sentinel-2-l2a'],
-#         datetime=after_dates,
-#         intersects=aoi
-#     )
-
-#     before_list = list(search_before.get_items())
-#     after_list = list(search_after.get_items())
-
-#     before_least_cloudy = [item for item in before_list if item.properties['eo:cloud_cover'] <= 10]
-#     after_least_cloudy = [item for item in after_list if item.properties['eo:cloud_cover'] <= 10]
-
-#     before_items = [pc.sign_item(i).to_dict() for i in before_least_cloudy]
-#     after_items = [pc.sign_item(i).to_dict() for i in after_least_cloudy]
+    # allow our dask cluster to adaptively scale from 2 to 24 nodes
+    cluster.adapt(minimum=2, maximum=24)
     
-#     # sanity check to make sure we have retrieved and authenticated items fro planetary computer
-#     blen = len(before_items)
-#     alen = len(after_items)
-#     print(f'{blen} images in before collection')
-#     print(f'{alen} images in after collection')
+    # extract before and after dates from input in format required by PC
+    before_dates = f'{dates[0]}/{dates[1]}'
+    after_dates = f'{dates[2]}/{dates[3]}'
 
-#     # convert provided coordinates into appropriate format for clipping xarray imagery
-#     xs = [x for x,y in aoi['coordinates'][0]]
-#     ys = [y for x,y in aoi['coordinates'][0]]
-#     bounds = [min(xs), min(ys), max(xs), max(ys)]
+    # connect to the planetary computer catalog
+    catalog = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
+    # sentinel = catalog.get_child('sentinel-2-l2a')
     
-#     # create an 
-#     before_data = (
-#         stackstac.stack(
-#             before_items[0],
-#             epsg = 32617,
-#             bounds_latlon = bounds,
-#             # resolution=10,
-#             assets=['B02', 'B03', 'B04', 'B08'],  # blue, green, red, nir
-#             # chunks is for parallel computing on Dask cluster, only refers to spatial dimension
-#             chunksize=(10000, 10000) # don't make smaller than native S2 tiles (100x100km)
-#         )
-#         .where(lambda x: x > 0, other=np.nan)  # sentinel-2 uses 0 as nodata
-#         .assign_coords(band = lambda x: x.common_name.rename("band"))  # use common names
-#     )
+    before_data = get_s2_stack(catalog, before_dates, aoi)
+    after_data = get_s2_stack(catalog, after_dates, aoi)
 
-#     after_data = (
-#         stackstac.stack(
-#             after_items,
-#             epsg=32617,
-#             bounds_latlon = bounds,
-#             # resolution=10,
-#             assets=['B02', 'B03', 'B04', 'B08'],  # blue, green, red, nir
-#             chunksize=(10000, 10000) # set chunk size to 256 to get one chunk per time step
-#         )
-#         .where(lambda x: x > 0, other=np.nan)  # sentinel-2 uses 0 as nodata
-#         .assign_coords(band = lambda x: x.common_name.rename("band"))  # use common names
-#      )
+    # convert provided coordinates into appropriate format for clipping xarray imagery
+    xs = [x for x,y in aoi['coordinates'][0]]
+    ys = [y for x,y in aoi['coordinates'][0]]
+    bounds = [min(xs), min(ys), max(xs), max(ys)]
+
+    # reduce the before and after image collections to a single image using median value per pixel
+    before = before_data.median(dim="time")
+    after = after_data.median(dim="time")
     
-#     # reduce the before and after image collections to a single image using median value per pixel
-#     before = before_data.median(dim="time")
-#     after = after_data.median(dim="time")
+    # compute the result and load to local machine
+    bef_clip = bef.rio.clip([aoi], crs).compute()
+    aft_clip = aft.rio.clip([aoi], crs).compute()
 
-#     # assign the native sentinel-2 crs the resulting xarrays
-#     bef = before.rio.set_crs(32617)
-#     aft = after.rio.set_crs(32617)
+    # This non-distributed method seems to be working but timing out
+    # TODO: try changing chunk dimensions, try increasing timeout time of Webservice
+    # bd, ad = dask.compute(bef_clip, aft_clip)
+
+    # result_dict = wait([bef_clip, aft_clip], return_when = 'ALL_COMPLETED')
     
-#     # compute the result and load to local machine
-#     bef_clip = bef.rio.clip([aoi], crs).compute()
-#     aft_clip = aft.rio.clip([aoi], crs).compute()
-
-#     # This non-distributed method seems to be working but timing out
-#     # TODO: try changing chunk dimensions, try increasing timeout time of Webservice
-#     # bd, ad = dask.compute(bef_clip, aft_clip)
-
-#     # result_dict = wait([bef_clip, aft_clip], return_when = 'ALL_COMPLETED')
-    
-#     # close our cluster
-#     client.close()
-#     cluster.shutdown()
-#     # return the before and after images as numpy arrays
-#     return bef_clip.data, aft_clip.data
+    # close our cluster
+    client.close()
+    cluster.shutdown()
+    # return the before and after images as numpy arrays
+    return bef_clip.data, aft_clip.data
 
 # def test_PC_connection():
 #     """Test our ability to retrieve satellite imagery from Planetary Computer
@@ -308,28 +305,115 @@ def recursive_api_try(search):
 #     return bef_local.data
 
 
-# def run(aoi, dates, crs, m, buff = 128, kernel = 256):
-#     """Retrieve Sentinel-2 imagery from Microsoft Planetary Computer and run change detection
-#     Arguments:
-#         aoi (dict): GeoJson like dictionary defining area of interest
-#         crs (int): 4-digit epsg code representing coordinate reference system of the aoi
-#         dates (tpl<str>): Four YYYY-MM-DD strings defining the before and after periods
-#         m (keras.Model): model to be used to make predictions
-#         buff (int): buffer to strip from prediction patches
-#         kernel (int): size of side of prediction patches
-#     Return:
-#         numpy.ndarray: 3D array with per-pixel change probabilities
-#     """
-#     # returns before and after image tuple
-#     bef_img, aft_img = get_pc_imagery(aoi, dates, crs)
-#     arr = np.rollaxis(np.concatenate([bef_img, aft_img], axis = 0), 0, 3)
+def run_local(aoi, dates, m, buff = 128, kernel = 256):
+    """Retrieve Sentinel-2 imagery from Microsoft Planetary Computer and run change detection
+    Arguments:
+        aoi (dict): GeoJson like dictionary defining area of interest
+        crs (int): 4-digit epsg code representing coordinate reference system of the aoi
+        dates (tpl<str>): Four YYYY-MM-DD strings defining the before and after periods
+        m (keras.Model): model to be used to make predictions
+        buff (int): buffer to strip from prediction patches
+        kernel (int): size of side of prediction patches
+    Return:
+        numpy.ndarray: 3D array with per-pixel change probabilities
+    """
+    # extract before and after dates from input in format required by PC
+    before_dates = f'{dates[0]}/{dates[1]}'
+    after_dates = f'{dates[2]}/{dates[3]}'
 
-#     H,W,C = arr.shape
-#     output = np.zeros((H, W, 1), dtype=np.float32)
+    # get our before and after stacs
+    print('retrieving s2 data')
+    bef_stac = get_s2_stac(before_dates, aoi)
+    aft_stac = get_s2_stac(after_dates, aoi) # these are projected rioxarrays
+
+    # create median composites
+    bef_median = bef_stac.median(dim="time")
+    aft_median = aft_stac.median(dim="time")
+
+    #normalize
+    bef_norm = normalize_dataArray(bef_median, 'band')
+    aft_norm = normalize_dataArray(aft_median, 'band')
     
-#     chips, chip_indices = extract_chips(arr)
+    # concatenate
+    ds = xr.concat([bef_norm, aft_norm], dim="band").assign_coords({'band':['B2', 'B3', 'B4', 'B8','B2_1', 'B3_1', 'B4_1', 'B8_1']})
 
-#     output = predict_chips(chips, chip_indices, m, output = output, kernel = kernel, buff = buff)
+    # trimmed = trim_dataArray(ds, 256)
 
-#     print(f'returning array of {output.shape}')
-#     return output
+    C,H,W = ds.shape
+    print('data shape:', ds.shape)
+
+    rearranged = ds.transpose('y','x','band')
+    print('rearranged shape', rearranged.shape)
+    indices = prediction_tools.generate_chip_indices(rearranged, buff, kernel)
+    print(len(indices), 'indices generated')
+    template = np.zeros((H, W))
+    print('template shape:', template.shape)
+    # print('generating chips')
+    # chips, chip_indices = extract_chips(ds)
+    # print(len(chip_indices), 'chips generated')
+    print('running predictions')
+    output = predict_chips(rearranged, indices, template, m, kernel = kernel, buff = buff)
+
+    # print(f'returning array of {output.shape}')
+    return output
+
+def run_dask(model_blob_url, weights_blob_url, custom_objects, dates, aoi):
+    # # create a dask cluster
+    # print('spinning up Dask Cluster')
+    # cluster = GatewayCluster(
+    #     address = "https://pccompute.westeurope.cloudapp.azure.com/compute/services/dask-gateway",
+    #     proxy_address = "gateway://pccompute-dask.westeurope.cloudapp.azure.com:80",
+    #     auth = 'jupyterhub',
+    #     worker_cores = 4
+    # )
+
+    # client = cluster.get_client()
+    # client.upload_file(f'{str(ROOT)}/model_tools.py', load = True)
+
+    # # allow our dask cluster to adaptively scale from 2 to 24 nodes
+    # cluster.adapt(minimum=4, maximum=24)
+    # print('cluster created', cluster.dashboard_link)
+
+    # extract before and after dates from input in format required by PC
+    before_dates = f'{dates[0]}/{dates[1]}'
+    after_dates = f'{dates[2]}/{dates[3]}'
+
+    # get our before and after stacs
+    print('retrieving s2 data')
+    bef_stac = get_s2_stac(before_dates, aoi)
+    aft_stac = get_s2_stac(after_dates, aoi) # these are projected rioxarrays
+
+    # create median composites
+    bef_median = bef_stac.median(dim="time")
+    aft_median = aft_stac.median(dim="time")
+
+    #normalize
+    bef_norm = normalize_dataArray(bef_median, 'band')
+    aft_norm = normalize_dataArray(aft_median, 'band')
+    
+    # concatenate
+    ds = xr.concat([bef_norm, aft_norm], dim="band").assign_coords({'band':['B2', 'B3', 'B4', 'B8','B2_1', 'B3_1', 'B4_1', 'B8_1']})
+
+    trimmed = trim_dataArray(ds, 256)
+    chunked = trimmed.chunk({'x':256, 'y':256})
+
+    print('running chunked predictions')
+    meta = np.array([[]], dtype="float32")
+    predictions_array = chunked.data.map_overlap(
+        lambda x: predict_chunk(x, model_blob_url, weights_blob_url, custom_objects),
+        depth = (0, 64, 64),
+        boundary = 0,
+        meta=meta,
+        drop_axis=0    
+    )
+
+    # predictions = predictions_array
+
+    # # to restore spatial reference, cast back to Xarray
+    # out = xr.DataArray(
+    #     predictions,
+    #     coords=trimmed.drop_vars("band").coords,
+    #     dims=("y", "x"),
+    # )
+    
+    return(predictions_array)
