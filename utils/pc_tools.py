@@ -88,6 +88,34 @@ def trim_dataArray(da: xr.DataArray, size: int) -> xr.DataArray:
   trimmed = da.isel(**slices)
   return trimmed
 
+def get_naip_stac(dates, aoi):
+    
+    catalog = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
+    collections = ['naip']
+
+    search = catalog.search(
+        intersects = aoi,
+        datetime = dates,
+        collections = collections,
+        limit = 500
+    )
+
+    items = planetary_computer.sign(search.get_all_items())
+    # items is a pystac ItemCollection
+    items2 = items.to_dict()
+    features = items2['features'] 
+    dates = [x['properties']['datetime'] for x in features]
+    years = [date[0:4] for date in dates]
+    years.sort()
+    filtered = [x for x in features if x['properties']['datetime'][0:4] == years[-1]]
+
+    # organize all naip images overlapping box into a vrt stac
+
+    crss = np.unique(np.array([item['properties']['proj:epsg'] for item in filtered]))
+    naip = stac_vrt.build_vrt(filtered, block_width=512, block_height=512, data_type="Byte")
+    return naip
+
+    
 def naip_mosaic(naips: list, crs: int):
     """ mosaic a list of naip stac items into a single xarray DataArray
     Parameters
@@ -163,8 +191,8 @@ def get_s2_stac(dates, aoi):
 
     s2crs = s2Stac.attrs['crs']
     s2projected = s2Stac.rio.set_crs(s2crs)
-
-    return s2projected
+    trimmed = s2projected.rio.clip(geometries = [aoi], crs = 4326)
+    return trimmed, trimmed.rio.transform()
     
 def get_pc_imagery(aoi, dates, crs):
     """Get S2 imagery from Planetary Computer. REQUIRES a valid API token be added to the os environment
@@ -323,8 +351,8 @@ def run_local(aoi, dates, m, buff = 128, kernel = 256):
 
     # get our before and after stacs
     print('retrieving s2 data')
-    bef_stac = get_s2_stac(before_dates, aoi)
-    aft_stac = get_s2_stac(after_dates, aoi) # these are projected rioxarrays
+    bef_stac, bef_transform = get_s2_stac(before_dates, aoi)
+    aft_stac, aft_transform = get_s2_stac(after_dates, aoi) # these are projected rioxarrays
 
     # create median composites
     bef_median = bef_stac.median(dim="time")
@@ -337,11 +365,8 @@ def run_local(aoi, dates, m, buff = 128, kernel = 256):
     # concatenate
     ds = xr.concat([bef_norm, aft_norm], dim="band").assign_coords({'band':['B2', 'B3', 'B4', 'B8','B2_1', 'B3_1', 'B4_1', 'B8_1']})
 
-    # trimmed = trim_dataArray(ds, 256)
-
     C,H,W = ds.shape
-    print('data shape:', ds.shape)
-
+    print('data shape:', ds.shape) # from planetary computer this is C, H, W
     rearranged = ds.transpose('y','x','band')
     print('rearranged shape', rearranged.shape)
     indices = prediction_tools.generate_chip_indices(rearranged, buff, kernel)
@@ -351,11 +376,12 @@ def run_local(aoi, dates, m, buff = 128, kernel = 256):
     # print('generating chips')
     # chips, chip_indices = extract_chips(ds)
     # print(len(chip_indices), 'chips generated')
+    dat = rearranged.values
     print('running predictions')
-    output = predict_chips(rearranged, indices, template, m, kernel = kernel, buff = buff)
+    output = predict_chips(dat, indices, template, m, kernel = kernel, buff = buff)
 
     # print(f'returning array of {output.shape}')
-    return output
+    return output, bef_median, aft_median, aft_transform
 
 def run_dask(model_blob_url, weights_blob_url, custom_objects, dates, aoi):
     # # create a dask cluster
