@@ -37,12 +37,15 @@ def gen_dice(y_true, y_pred, eps=1e-6, global_weights = None):
 
     # [b, h, w, classes]
     # pred_tensor = tf.nn.softmax(y_pred)
-    pred_tensor = y_pred
+    # pred_tensor = y_pred
     y_true_shape = tf.shape(y_true)
+    y_pred_shape = tf.shape(y_pred)
+    print('label shape', y_true_shape)
+    print("predictions shape", y_pred_shape)
 
     # [b, h*w, classes]
     y_true = tf.reshape(y_true, [-1, y_true_shape[1]*y_true_shape[2], y_true_shape[3]])
-    y_pred = tf.reshape(pred_tensor, [-1, y_true_shape[1]*y_true_shape[2], y_true_shape[3]])
+    pred_tensor = tf.reshape(y_pred, [-1, y_true_shape[1]*y_true_shape[2], y_true_shape[3]])
 
 
     # we can use the batchwise weights or global weights - select one of them
@@ -61,14 +64,14 @@ def gen_dice(y_true, y_pred, eps=1e-6, global_weights = None):
         weights = tf.where(tf.math.is_finite(weights), weights, eps)        
 
     #[b, classes]
-    multed = tf.reduce_sum(y_true * y_pred, axis=1)
-    summed = tf.reduce_sum(y_true + y_pred, axis=1)
+    multed = tf.reduce_sum(y_true * pred_tensor, axis=1)
+    summed = tf.reduce_sum(y_true + pred_tensor, axis=1)
 
     # [b]
     numerators = tf.reduce_sum(weights*multed, axis=-1)
     denom = tf.reduce_sum(weights*summed, axis=-1)
     dices = 1. - 2. * numerators / denom
-    dices = tf.where(tf.math.is_finite(dices), dices, tf.zeros_like(dices))
+    # dices = tf.where(tf.math.is_finite(dices), dices, tf.zeros_like(dices))
     return tf.reduce_mean(dices)
 
 def weighted_bce(y_true, y_pred, weight):
@@ -578,10 +581,11 @@ def get_hybrid_model(unet_dim, lstm_dim, n_classes, optim, metrics, loss, filter
     lstm_input = layers.Input(shape=lstm_dim)
     lstm_output = build_lstm_layers(lstm_input)
     lstm_dense = layers.Conv2D(n_classes, [1,1], activation = 'sigmoid', data_format = 'channels_last', padding = 'same')(lstm_output) # match n_filters from last unet layer
-    lstm_resized = layers.Resizing(unet_dim[0], unet_dim[1], 'nearest')(lstm_dense) # resizing raw lstm was blowing memory
+    # lstm_resized = layers.Resizing(unet_dim[0], unet_dim[1], 'nearest')(lstm_dense) # resizing raw lstm was blowing memory
+    lstm_resized = tf.image.resize(lstm_dense, [unet_dim[0], unet_dim[1]], method = 'nearest')
     concat_layer = layers.concatenate([lstm_resized, unet_dense], axis=-1)
-    dense_layer = layers.Conv2D(n_classes, [1,1], activation = 'sigmoid', data_format = 'channels_last', padding = 'same')(concat_layer)
-    model = models.Model(inputs = [unet_input, lstm_input], outputs = [unet_dense, lstm_dense, concat_dense])
+    concat_dense = layers.Conv2D(n_classes, [1,1], activation = 'softmax', data_format = 'channels_last', padding = 'same')(concat_layer)
+    model = models.Model(inputs = [unet_input, lstm_input], outputs = concat_dense)
 
     model.compile(
         optimizer = optim,
@@ -686,8 +690,12 @@ def retrain_model(model_file, checkpoint, eval_data, metric, weights_file = None
     else:
         custom_objects = {}
         
-    # load our previously trained model and weights    
-    m = models.load_model(model_file, custom_objects = custom_objects)
+    # load our previously trained model and weights
+    if type(model_file) == str:
+        m = models.load_model(model_file, custom_objects = custom_objects)
+    else:
+        m = model_file
+        
     if weights_file:
         m.load_weights(weights_file)
     # set the initial evaluation metric for saving checkpoints to the previous best value

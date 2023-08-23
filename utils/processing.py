@@ -20,6 +20,28 @@ if str(DIR) not in sys.path:
 
 from array_tools import merge_classes, normalize_array, rescale_array, aug_array_color, aug_array_morph, rearrange_timeseries, normalize_timeseries
 
+def split_files(files, labels = ['label', 'lu', 'lidar', 's2', 'naip']):
+  """Divide list of .npy arrays into separate lists by source data (e.g. NAIP, S2, etc.)
+
+  Params
+  ---
+  files: list(str)
+    list of files to be split
+  labels: list(str)
+    list of prefixes identifying subsets of files to return
+  
+  Return
+  ---
+  list, list, list: tuple of lists per file subset
+  """
+  indices = [set([tuple(os.path.basename(f).split('_')[1::4]) for f in files if label in f]) for label in labels]
+
+  intersection = set.intersection(*indices)
+
+  out_files = [[f for f in files if label in f and tuple(os.path.basename(f).split('_')[1::4]) in intersection] for label in labels]
+
+  return tuple(out_files)
+  
 def calc_ndvi(input):
   """Caclulate NDVI from Sentinel-2 data
   Parameters:
@@ -676,80 +698,110 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
     def _get_s2_data(self, indexes):
 
         files_temp = [self.s2files[k] for k in indexes]
-
         # arrays come from PC in (T, C, H, W) format
         arrays = [np.load(f) for f in files_temp]
-        # creat a single (B, T, C, H, W) array
-        batch = np.stack(arrays, axis = 0)
-        # in case our incoming data is of different size than we want, define a trim amount
-        trim = ((batch.shape[3] - self.lstm_dim[1])//2, (batch.shape[4] - self.lstm_dim[2])//2) 
-        print(trim)
-        array = batch[:, 0:self.n_timesteps,:,trim[0]:self.lstm_dim[1]+trim[0],trim[1]:self.lstm_dim[2]+trim[1]]
 
-        print('batch shape', batch.shape)
-        # rearrange arrays from (B, T, C, H, W) -> (B, T, H, W, C) expected by model
-        reshaped = np.moveaxis(array, source = 2, destination = 4)
-        print('reshaped shape', reshaped.shape)
-        normalized = normalize_timeseries(reshaped, axis = 1)
-        recolored = aug_array_color(normalized)
-        return recolored
+        try:
+            assert len(arrays) > 0
+            assert all([x.shape == (self.lstm_dim[0], self.lstm_dim[3], self.lstm_dim[1], self.lstm_dim[2]) for x in arrays])
+        
+            # creat a single (B, T, C, H, W) array
+            batch = np.stack(arrays, axis = 0)
+            # in case our incoming data is of different size than we want, define a trim amount
+            trim = ((batch.shape[3] - self.lstm_dim[1])//2, (batch.shape[4] - self.lstm_dim[2])//2) 
+
+            array = batch[:, 0:self.n_timesteps,:,trim[0]:self.lstm_dim[1]+trim[0],trim[1]:self.lstm_dim[2]+trim[1]]
+
+            # rearrange arrays from (B, T, C, H, W) -> (B, T, H, W, C) expected by model
+            reshaped = np.moveaxis(array, source = 2, destination = 4)
+            normalized = normalize_timeseries(reshaped, axis = 1)
+            recolored = aug_array_color(normalized)
+            return recolored
+        except AssertionError:
+            return None
 
     def _get_naip_data(self, indexes):
         # Find list of IDs
         files_temp = [self.naipfiles[k] for k in indexes]
         # arrays come from PC in (C, H, W) format
         arrays = [np.load(f) for f in files_temp]
-        # creat a single (B, C, H, W) array per batch
-        batch = np.stack(arrays, axis = 0)
-        in_shape = batch.shape
-        # in case our incoming data is of different size than we want, define a trim amount
-        trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2) 
-        # If necessary, trim data to (-1, dims[0], dims[1])
-        array = batch[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
-        # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
-        reshaped = np.moveaxis(array, source = 1, destination = 3)
-        normalized = reshaped/255.0
-        recolored = aug_array_color(normalized)
-        return recolored
+
+        try: 
+            assert len(arrays) > 0
+            assert all([x.shape == (4, self.unet_dim[0], self.unet_dim[1]) for x in arrays])
+            # creat a single (B, C, H, W) array per batch
+            batch = np.stack(arrays, axis = 0)
+            in_shape = batch.shape
+            # in case our incoming data is of different size than we want, define a trim amount
+            trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2) 
+            # If necessary, trim data to (-1, dims[0], dims[1])
+            array = batch[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
+            # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
+            reshaped = np.moveaxis(array, source = 1, destination = 3)
+            normalized = reshaped/255.0
+            recolored = aug_array_color(normalized)
+            return recolored
+        except AssertionError:
+            return None
     
     def _get_lidar_data(self, indexes):
-        files_temp = [self.lidarfiles[k] for k in indexes]
-        arrays = [np.load(f) for f in files_temp]
-        batch = np.stack(arrays, axis = 0)
-        in_shape = batch.shape
-        trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2) 
-        array = batch[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
-        reshaped = np.moveaxis(array, source = 1, destination = 3)
-        normalized = reshaped/100.0
-        return normalized
+        if self.lidarfiles:
+
+            files_temp = [self.lidarfiles[k] for k in indexes]
+            arrays = [np.load(f) for f in files_temp]
+            try:
+                assert len(arrays) == self.batch_size
+                assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in arrays])
+                batch = np.stack(arrays, axis = 0)
+                in_shape = batch.shape
+                trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2) 
+                array = batch[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
+                reshaped = np.moveaxis(array, source = 1, destination = 3)
+                normalized = reshaped/100.0
+                return normalized
+            except AssertionError:
+                return None
+        else:
+            return None
 
     def _process_y(self, indexes):
         # get label files for current batch
         lc_files = [self.labelfiles[k] for k in indexes]
         lc_arrays = [np.load(file) for file in lc_files]
-        lc = np.stack(lc_arrays, axis = 0) #(B, C, H, W)
-        int_labels = lc.astype(int)
+        try:
+            assert len(lc_arrays) == self.batch_size
+            assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lc_arrays])
+            lc = np.stack(lc_arrays, axis = 0) #(B, C, H, W)
+            int_labels = lc.astype(int)
 
         # reduce the number of classes 
-        merged_labels = merge_classes(cond_array = int_labels, trans = self.trans, out_array = int_labels)
-        
-        if self.lufiles:
-            lu_files = [self.lufiles[k] for k in indexes]
-            lu_arrays = [np.load(file) for file in lu_files]
-            lu = np.stack(lu_arrays, axis = 0) #(B, C, H, W)
-            merged_labels = merge_classes(cond_array = lu, trans = [(82,9), (84,10)], out_array = merged_labels)
+            merged_labels = merge_classes(cond_array = int_labels, trans = self.trans, out_array = int_labels)
 
-        # If necessary, trim data to (-1, dims[0], dims[1])
-        in_shape = merged_labels.shape
-        trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2) 
-        array = merged_labels[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
+            if self.lufiles:
+                lu_files = [self.lufiles[k] for k in indexes]
+                lu_arrays = [np.load(file) for file in lu_files]
+                try:
+                    assert len(lu_arrays) == self.batch_size
+                    assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lu_arrays])                
+                    lu = np.stack(lu_arrays, axis = 0) #(B, C, H, W)
+                    merged_labels = merge_classes(cond_array = lu, trans = [(82,9), (84,10)], out_array = merged_labels)
+                except AssertionError:
+                    return None
 
-        # shift range of categorical labels from [1, n_classes] to [0, n_classes]
-        zeroed = array - 1
-        # create one-hot representation of classes
-        one_hot = tf.one_hot(zeroed, self.n_classes)
-        # one_hot = to_one_hot(zeroed, self.n_classes)
-        return tf.squeeze(one_hot)
+            # If necessary, trim data to (-1, dims[0], dims[1])
+            in_shape = merged_labels.shape
+            trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2) 
+            array = merged_labels[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
+
+            # shift range of categorical labels from [1, n_classes] to [0, n_classes]
+            zeroed = array - 1
+            # create one-hot representation of classes
+            one_hot = tf.one_hot(zeroed, self.n_classes)
+            # one_hot = to_one_hot(zeroed, self.n_classes)
+            return tf.squeeze(one_hot)
+
+        except AssertionError:
+            return None
 
     def __getitem__(self, index):
         """Generate one batch of data
@@ -758,26 +810,32 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         :return: X and y when fitting. X only when predicting
         """
         # Generate indexes of the batch
+        
         indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
 
         lstmData = self._get_s2_data(indexes)
 
         naipData = self._get_naip_data(indexes)
 
-        if self.lidarfiles:
-            lidarData = self._get_lidar_data(indexes)
+        lidarData = self._get_lidar_data(indexes)
+
+        labels = self._process_y(indexes)
+
+        if type(lidarData) == np.ndarray:
             unetData = np.concatenate([naipData, lidarData], axis = -1)
         else:
             unetData = naipData
 
-        labels = self._process_y(indexes)
-
         feats = [unetData, lstmData]
+        if any([type(dat) == type(None) for dat in feats]):
+            return self.__getitem__(randint(0, len(self.indexes) - self.batch_size))
 
         if self.to_fit:
-
+            if type(labels) == type(None):
+                return self.__getitem__(randint(0, len(self.indexes) - self.batch_size))
             # feats, labels = split_timeseries(rearranged)
             # we can't have nans in label
-            return feats, labels
+            else:
+                return feats, labels
         else:
             return feats
