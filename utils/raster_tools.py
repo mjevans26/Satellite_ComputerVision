@@ -19,6 +19,52 @@ from matplotlib.pyplot import imsave
 import warnings
 import random
 
+def generate_chip_indices(arr, buff = 128, kernel = 256):
+  """
+  Parameters
+  ---
+    arr: np.ndarray
+      3D array (H, W, C) for which indices should be generated
+    buff: int
+      size of pixels to be trimmed from chips
+    kernel: int
+      size of contiguous image chips
+  Return
+  ---
+    list::np.ndarray: list containing (y,x) index of chips upper left corner
+  """
+  H, W, C = arr.shape
+  side = buff + kernel
+  x_buff = y_buff = buff//2
+  
+  y_indices = list(range(y_buff, H - side, kernel))
+  x_indices = list(range(x_buff, W - side, kernel))
+
+  indices = [(y_index, x_index) for y_index in y_indices for x_index in x_indices]
+  return indices
+
+def extract_chips(arr, buff = 128, kernel = 256):
+    """Break an array into (potentially) overlapping chips for analysis
+    Arguments:
+        arr (ndarray): 3D array to run predictions on
+        buff (int): size of pixels to be trimmed from chips
+        kernel (int): size of contiguous image chips
+    Return:
+        list::np.ndarray: list containing image chips of size (kernel+buff, kernel+buff)
+    """
+    H, W, C = arr.shape
+    side = buff + kernel
+    x_buff = y_buff = buff//2
+    chips = []
+
+    chip_indices = generate_chip_indices(arr, buff, kernel)
+
+    for x, y in chip_indices:
+      chip = arr[y-y_buff:y+kernel+y_buff, x-x_buff:x+kernel+x_buff, :]
+      chips.append(chip)
+    
+    return chips
+    
 def convert(size, box):
     """
     Convert coordinates of a bounding box given in image pixels to

@@ -20,6 +20,23 @@ import io
 import h5py
 import tempfile
 
+def weighted_categorical_crossentropy(target, output, weights, axis=-1):
+    target = tf.convert_to_tensor(target)
+    output = tf.convert_to_tensor(output)
+    target.shape.assert_is_compatible_with(output.shape)
+    weights = tf.reshape(tf.convert_to_tensor(weights, dtype=target.dtype), (1,-1))
+
+    # Adjust the predictions so that the probability of
+    # each class for every sample adds up to 1
+    # This is needed to ensure that the cross entropy is
+    # computed correctly.
+    output = output / tf.reduce_sum(output, axis, True)
+
+    # Compute cross entropy from probabilities.
+    epsilon_ = tf.constant(tf.keras.backend.epsilon(), output.dtype.base_dtype)
+    output = tf.clip_by_value(output, epsilon_, 1.0 - epsilon_)
+    return -tf.reduce_sum(weights * target * tf.math.log(output), axis=axis)
+
 def gen_dice(y_true, y_pred, eps=1e-6, global_weights = None):
     """both tensors are [b, h, w, classes] and y_pred is in logit form
 
@@ -493,34 +510,39 @@ def build_lstm_layers(input_tensor):
     keras.model: compiled keras model with unet and lstm branches
     """
 
-    lstm_layer = layers.ConvLSTM2D(
+    feats = layers.ConvLSTM2D(
         filters = 64,
         kernel_size = [3,3],
         # dilation_rate = (2,2),
         padding = 'same',
         data_format = 'channels_last',
-        activation = 'tanh',
+        activation = None,
         return_sequences = True,
-        return_state = False
+        return_state = False,
+        name = 'conv_lstm'
     )(input_tensor)
 
-    lstm_norm_layer = layers.BatchNormalization()(lstm_layer)
+    normalized = layers.BatchNormalization(name = 'batch_norm')(feats)
+    activated = layers.Activation('relu')(normalized)
 
-    second_lstm_layer = layers.ConvLSTM2D(
+    feats2 = layers.ConvLSTM2D(
         filters = 64,
         kernel_size = [3,3],
+        dilation_rate = (3,3),
         padding= 'same',
         data_format = 'channels_last',
-        activation = 'tanh',
+        activation = None,
         return_sequences = False,
-        return_state = False
-    )(lstm_norm_layer)
+        return_state = False,
+        name = 'dilated_conv_lstm'
+    )(activated)
 
-    lstm_norm_layer2 = layers.BatchNormalization()(second_lstm_layer)
+    normalized2 = layers.BatchNormalization(name = 'batch_norm2')(feats2)
+    activated2 = layers.Activation('relu')(normalized2)
 
-    return lstm_norm_layer2
+    return activated2
 
-def get_lstm_model(n_channels, n_time, optim, metrics, loss):
+def get_lstm_model(n_channels, n_time, optim, metrics, loss, activation = layers.ReLU(max_value = 2.0)):
     """ Build and complie an LSTM model in Keras
 
     Params
@@ -543,9 +565,8 @@ def get_lstm_model(n_channels, n_time, optim, metrics, loss):
     """
     lstm_input = layers.Input(n_time, None, None, n_channels)
     lstm_output = build_lstm_layers(lstm_input)
-    # concat_layer = layers.Concatenate(axis = -1)([lstm_layer, dilated_lstm_layer])
     dense_layer = layers.Conv2D(n_classes, [1,1], data_format = 'channels_last', padding = 'same')(lstm_output)
-    activation = activations.relu(dense_layer,max_value = 2.0)
+    activation = activations(dense_layer)
     model = models.Model(inputs = lstm_input, outputs = activation)
     model.compile(
         optimizer = optim,
@@ -577,16 +598,46 @@ def get_hybrid_model(unet_dim, lstm_dim, n_classes, optim, metrics, loss, filter
     """
     unet_input = layers.Input(shape=unet_dim)
     unet_output = build_unet_layers(unet_input, filters = filters, factors = factors)
-    unet_dense = layers.Conv2D(n_classes, [1,1], activation = 'sigmoid', data_format = 'channels_last', padding = 'same')(unet_output)
+    unet_dense = layers.Conv2D(n_classes, [1,1], activation = 'relu', data_format = 'channels_last', padding = 'same')(unet_output)
     lstm_input = layers.Input(shape=lstm_dim)
     lstm_output = build_lstm_layers(lstm_input)
-    lstm_dense = layers.Conv2D(n_classes, [1,1], activation = 'sigmoid', data_format = 'channels_last', padding = 'same')(lstm_output) # match n_filters from last unet layer
+    lstm_dense = layers.Conv2D(n_classes, [1,1], activation = 'relu', data_format = 'channels_last', padding = 'same')(lstm_output) # match n_filters from last unet layer
     # lstm_resized = layers.Resizing(unet_dim[0], unet_dim[1], 'nearest')(lstm_dense) # resizing raw lstm was blowing memory
     lstm_resized = tf.image.resize(lstm_dense, [unet_dim[0], unet_dim[1]], method = 'nearest')
     concat_layer = layers.concatenate([lstm_resized, unet_dense], axis=-1)
     concat_dense = layers.Conv2D(n_classes, [1,1], activation = 'softmax', data_format = 'channels_last', padding = 'same')(concat_layer)
     model = models.Model(inputs = [unet_input, lstm_input], outputs = concat_dense)
 
+    model.compile(
+        optimizer = optim,
+        loss = loss,
+        metrics = metrics
+    )
+    return model
+
+def build_acnn_layers(input_tensor, depth, nfilters, nclasses):
+    """
+    https://github.com/XiaoYunZhou27/ACNN/blob/master/acnn.py
+    """
+    feats = layers.Conv2D(filters = nfilters, kernel_size = (3,3), padding = 'same', activation = None, name = f'Conv2D_0_1')(input_tensor)
+    norm = layers.BatchNormalization()(feats)
+    features_add = layers.ReLU()(norm)
+    for layer in range(1, depth):
+        feats = layers.Conv2D(filters = nfilters, kernel_size = (3,3), padding = 'same', activation = None, name = f'Conv2D_{layer}_1')(feats)
+        norm = layers.BatchNormalization()(feats)
+        features_add = layers.ReLU()(norm + features_add)
+        
+        feats = layers.Conv2D(filters = nfilters, kernel_size = (3,3), dilation_rate = 3, padding = 'same', activation = None, name = f'Conv2D_{layer}_2')(features_add)
+        norm = layers.BatchNormalization()(feats)
+        relu = layers.ReLU()(norm)
+
+    logits = layers.Conv2D(filters = nclasses, kernel_size = (1,1), padding = 'same', activation = 'softmax', name = 'probabilities')(relu)
+    return logits
+
+def get_acnn_model(nclasses, nfilters, nchannels, depth, optim, metrics, loss):
+    acnn_input = layers.Input((None, None, nchannels))
+    logits = build_acnn_layers(acnn_input, depth = depth, nfilters = nfilters, nclasses = nclasses)
+    model = models.Model(inputs = acnn_input, outputs = logits)
     model.compile(
         optimizer = optim,
         loss = loss,

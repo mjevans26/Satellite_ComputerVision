@@ -6,6 +6,7 @@ Created on Fri Mar 20 10:50:44 2020
 """
 import tensorflow as tf
 import numpy as np
+import math
 import os
 import sys
 from random import shuffle, randint, uniform
@@ -34,11 +35,13 @@ def split_files(files, labels = ['label', 'lu', 'lidar', 's2', 'naip']):
   ---
   list, list, list: tuple of lists per file subset
   """
-  indices = [set([tuple(os.path.basename(f).split('_')[1::4]) for f in files if label in f]) for label in labels]
+
+#   tuples = [tuple(f.split('_')[1::4]) for f in basenames]
+  indices = [set([tuple(os.path.basename(f).split('_')[1::4]) for f in files if label in os.path.dirname(f)]) for label in labels]
 
   intersection = set.intersection(*indices)
 
-  out_files = [[f for f in files if label in f and tuple(os.path.basename(f).split('_')[1::4]) in intersection] for label in labels]
+  out_files = [[f for f in files if label in os.path.dirname(f) and tuple(os.path.basename(f).split('_')[1::4]) in intersection] for label in labels]
 
   return tuple(out_files)
   
@@ -142,9 +145,9 @@ def rearrange_timeseries(arr, nbands):
   batch_sums = np.sum(labels, axis = (1,2,3))
   if 0.0 in batch_sums:
     print('all nan labels, reshuffling')
-    feats, labels = rearrange_timeseries(arr, nbands)
+    feats, labels, starttime = rearrange_timeseries(arr, nbands)
 
-  return(feats, labels)
+  return(feats, labels, starttime)
 
 def sin_cos(t:int, freq:int = 6) -> tuple:
     x = t/freq
@@ -455,36 +458,50 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
     def _get_x_data(self, files_temp):
         # arrays come from PC in (C, H, W) format
         arrays = [np.load(f) for f in files_temp]
-        # creat a single (B, C, H, W) array per batch
-        batch = np.stack(arrays, axis = 0)
-        in_shape = batch.shape
-        # in case our incoming data is of different size than we want, define a trim amount
-        trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2) 
-        # If necessary, trim data to (-1, dims[0], dims[1])
-        array = batch[:,:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
-        # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
-        reshaped = np.moveaxis(array, source = 1, destination = 3)
-        return reshaped
+        try:
+            assert len(arrays) == self.batch_size
+            assert all([x.shape[1:4] == (self.dim[0], self.dim[1]) for x in arrays])
+            # creat a single (B, C, H, W) array per batch
+            batch = np.stack(arrays, axis = 0)
+            in_shape = batch.shape
+            # in case our incoming data is of different size than we want, define a trim amount
+            trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2) 
+            # If necessary, trim data to (-1, dims[0], dims[1])
+            array = batch[:,:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
+            # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
+            reshaped = np.moveaxis(array, source = 1, destination = 3)
+            return reshaped
+        except AssertionError:
+            return None
     
     def _get_naip_data(self, indexes):
         files_temp = [self.naipfiles[k] for k in indexes]
         naip = self._get_x_data(files_temp)
-        rescaled = naip/255.0
-        recolored = aug_array_color(rescaled)
-        return recolored
+        if type(naip) == np.ndarray:
+            rescaled = naip/255.0
+            recolored = aug_array_color(rescaled)
+            return recolored
+        else:
+            return naip
     
     def _get_s2_data(self, indexes):
         files_temp = [self.s2files[k] for k in indexes]
         s2 = self._get_x_data(files_temp)
-        rescaled = s2/10000.0
-        recolored = aug_array_color(rescaled)
-        return recolored
+        if type(s2) == np.ndarray:
+            rescaled = s2/10000.0
+            recolored = aug_array_color(rescaled)
+            return recolored
+        else:
+            return s2
     
     def _get_lidar_data(self, indexes):
         files_temp = [self.lidarfiles[k] for k in indexes]
         lidar = self._get_x_data(files_temp)
-        rescaled = lidar/100
-        return rescaled        
+        if type(lidar) == np.ndarray:
+            rescaled = lidar/100
+            return rescaled  
+        else:
+            return lidar      
 
     def _process_y(self, indexes):
         # get label files for current batch
@@ -548,7 +565,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         if self.to_fit:
             return feats, labels
         else:
-            return feats
+            return xData
 
 class LSTMDataGenerator(tf.keras.utils.Sequence):
     """Generates data for Keras
@@ -632,7 +649,8 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
     """
 
     def __init__(self, s2files, naipfiles, labelfiles, lufiles, lidarfiles = None, n_classes = 8,
-                 to_fit=True, batch_size=32, unet_dim=(320, 320, 4), transitions = [(12,3), (11,3), (10,3), (9,8)],
+                 to_fit=True, batch_size=32, unet_dim=(320, 320, 4),
+                 transitions = [(12,3), (11,3), (10,3), (9,8), (255, 0)],
                  lstm_dim = (6, 32, 32, 6), shuffle=True):
         """Class Initialization
 
@@ -694,6 +712,10 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         self.indexes = np.arange(len(self.labelfiles))
         if self.shuffle == True:
             np.random.shuffle(self.indexes)
+    
+    def __iter__(self):
+       for item in (self[i] for i in range(len(self))):
+            yield item 
     
     def _get_s2_data(self, indexes):
 
@@ -784,14 +806,16 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
                     assert len(lu_arrays) == self.batch_size
                     assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lu_arrays])                
                     lu = np.stack(lu_arrays, axis = 0) #(B, C, H, W)
-                    merged_labels = merge_classes(cond_array = lu, trans = [(82,9), (84,10)], out_array = merged_labels)
+                    y = merge_classes(cond_array = lu, trans = [(82,9), (84,10)], out_array = merged_labels)
                 except AssertionError:
                     return None
+            else:
+                y = merged_labels
 
             # If necessary, trim data to (-1, dims[0], dims[1])
-            in_shape = merged_labels.shape
+            in_shape = y.shape
             trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2) 
-            array = merged_labels[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
+            array = y[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
 
             # shift range of categorical labels from [1, n_classes] to [0, n_classes]
             zeroed = array - 1

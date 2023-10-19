@@ -40,6 +40,17 @@ from model_tools import predict_chunk
 
 from azure.storage.blob import ContainerClient, BlobClient
 
+def recursive_api_try(search):
+    try:
+        signed = planetary_computer.sign(search.get_all_items())
+        # collection = search.item_collection()
+        # print(len(collection), 'assets')
+        # signed = [planetary_computer.sign(item).to_dict() for item in collection]
+    except pystac_client.exceptions.APIError as error:
+        print('APIError, trying again')
+        signed = recursive_api_try(search)
+    return signed
+    
 def export_blob(data: np.ndarray, container_client: ContainerClient, blobUrl: str) -> None:
     with io.BytesIO() as buffer:
         np.save(buffer, data)
@@ -88,7 +99,7 @@ def trim_dataArray(da: xr.DataArray, size: int) -> xr.DataArray:
   trimmed = da.isel(**slices)
   return trimmed
 
-def get_naip_stac(dates, aoi):
+def get_naip_stac(aoi, dates):
     
     catalog = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
     collections = ['naip']
@@ -115,7 +126,46 @@ def get_naip_stac(dates, aoi):
     naip = stac_vrt.build_vrt(filtered, block_width=512, block_height=512, data_type="Byte")
     return naip
 
-    
+def get_lidar_stac(aoi, dates, crs = None, resolution = None):
+    catalog = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
+    search = catalog.search(
+        intersects = aoi,
+        datetime = dates, 
+        collections = ['3dep-lidar-hag']
+    )
+
+    items = recursive_api_try(search)
+    # items is a pystac ItemCollection
+    items2 = items.to_dict()
+    lidar = items2['features']
+
+    # lidarUrl = lidar[0]['assets']['data']['href']
+    lidarProperties = lidar[0]['properties']
+    lidarCrs = lidarProperties['proj:projjson']['components'][0]['id']['code']
+    lidarTransform = lidarProperties['proj:transform']
+    if resolution:
+        lidarRes = resolution
+    else:
+        lidarRes = lidarTransform[0]
+
+    # lidarSide = 360//lidarRes
+    # lidarZoom = round(600/lidarSide, 4)
+
+    # lidarCrs = [asset['properties']['proj:projjson']['components'][0]['id']['code'] for asset in lidar]
+    # print('LiDAR CRS', lidarCrs[0])
+    lidarStac = stackstac.stack(
+        lidar,
+        epsg = lidarCrs,
+        resolution = lidarRes,
+        sortby_date = False,
+        assets = ['data'])
+
+    lidarMedian = lidarStac.median(dim = 'time') 
+    projected = lidarMedian.rio.set_crs(lidarCrs)
+    # reprojected = projected.rio.reproject(lidarCrs)
+
+    return projected
+
 def naip_mosaic(naips: list, crs: int):
     """ mosaic a list of naip stac items into a single xarray DataArray
     Parameters
@@ -135,18 +185,6 @@ def naip_mosaic(naips: list, crs: int):
     naipImage = rioxarray.open_rasterio(naipStac, chunks = (4, 8192, 8192), lock = False)
     # reprojected = naipImage.rio.reproject('EPSG:4326')
     return(naipImage)
-
-def recursive_api_try(search):
-    try:
-        signed = planetary_computer.sign(search.get_all_items())
-        # collection = search.item_collection()
-        # print(len(collection), 'assets')
-        # signed = [planetary_computer.sign(item).to_dict() for item in collection]
-    except pystac_client.exceptions.APIError as error:
-        print('APIError, trying again')
-        signed = recursive_api_try(search)
-    return signed
-
 
 def get_s2_stac(dates, aoi):
     """from a pystac client return a stac of s2 imagery
