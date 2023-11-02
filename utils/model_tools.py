@@ -828,16 +828,17 @@ def get_blob_model(model_blob_url: str = None, custom_objects: dict = None) -> m
     model_client = BlobClient.from_blob_url(blob_url = model_blob_url)
     model_downloader = model_client.download_blob(0)
 
-    with io.BytesIO() as f:
-        model_downloader.readinto(f)
-        if model_blob_url.endswith('.h5'):
+    if model_blob_url.endswith('.h5'):
+        with io.BytesIO() as f:
+            model_downloader.readinto(f)
             with h5py.File(f, 'r') as h5file:
                 m = models.load_model(h5file, custom_objects = custom_objects, compile = False)
-        elif model_blob_url.endswith('.hdf5'):
-            with tempfile.NamedTemporaryFile(suffix = '.hdf5') as f:
-                model_downloader.readinto(f)
-                m = models.load_model(f.name, custom_objects = custom_objects, compile = False)
-
+    elif model_blob_url.endswith('.hdf5'):
+        with tempfile.NamedTemporaryFile(suffix = '.hdf5') as f:
+            model_downloader.readinto(f)
+            m = models.load_model(f.name, custom_objects = custom_objects, compile = False)
+    else:
+        m = None    
     # mp = Path('model.h5')
     # print('local model file', mp)
     # wp = Path('weights.hdf5')
