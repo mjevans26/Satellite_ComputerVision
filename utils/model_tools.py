@@ -825,15 +825,16 @@ def get_blob_model(h5_url: str = None, hdf5_url:str = None, custom_objects: dict
     tf.keras.models.Model: model with loaded weights
     """
 
-    model_client = BlobClient.from_blob_url(blob_url = model_blob_url)
-    model_downloader = model_client.download_blob(0)
-
     if h5_url:
+        model_client = BlobClient.from_blob_url(blob_url = h5_url)
+        model_downloader = model_client.download_blob(0)
         with io.BytesIO() as f:
             model_downloader.readinto(f)
             with h5py.File(f, 'r') as h5file:
                 m = models.load_model(h5file, custom_objects = custom_objects, compile = False)
     elif hdf5_url:
+        model_client = BlobClient.from_blob_url(blob_url = hdf5_url)
+        model_downloader = model_client.download_blob(0)        
         with tempfile.NamedTemporaryFile(suffix = '.hdf5') as f:
             model_downloader.readinto(f)
             m = models.load_model(f.name, custom_objects = custom_objects, compile = False)
