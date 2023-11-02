@@ -611,7 +611,7 @@ def get_lstm_autoencoder(n_channels, n_time, n_classes, optim, metrics, loss, ac
     )
     return model
 
-def get_hybrid_model(unet_dim, lstm_dim, n_classes, optim, metrics, loss, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2]):
+def get_hybrid_model(unet_dim, lstm_dim, n_classes, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2], compile_model = False, optim = None, metrics = None, loss = None):
     """Build and compile a hybrid U-Net/LSTM model in Keras
 
     Params
@@ -632,10 +632,10 @@ def get_hybrid_model(unet_dim, lstm_dim, n_classes, optim, metrics, loss, filter
     ---
     keras.models.Model
     """
-    unet_input = layers.Input(shape=unet_dim)
+    unet_input = layers.Input(shape=(None, None, unet_dim[-1]))
     unet_output = build_unet_layers(unet_input, filters = filters, factors = factors)
     unet_dense = layers.Conv2D(n_classes, [1,1], activation = 'relu', data_format = 'channels_last', padding = 'same')(unet_output)
-    lstm_input = layers.Input(shape=lstm_dim)
+    lstm_input = layers.Input(shape=(lstm_dim[0], None, None, lstm_dim[-1]))
     lstm_output = build_lstm_layers(lstm_input)
     lstm_dense = layers.Conv2D(n_classes, [1,1], activation = 'relu', data_format = 'channels_last', padding = 'same')(lstm_output) # match n_filters from last unet layer
     # lstm_resized = layers.Resizing(unet_dim[0], unet_dim[1], 'nearest')(lstm_dense) # resizing raw lstm was blowing memory
@@ -644,11 +644,12 @@ def get_hybrid_model(unet_dim, lstm_dim, n_classes, optim, metrics, loss, filter
     concat_dense = layers.Conv2D(n_classes, [1,1], activation = 'softmax', data_format = 'channels_last', padding = 'same')(concat_layer)
     model = models.Model(inputs = [unet_input, lstm_input], outputs = concat_dense)
 
-    model.compile(
-        optimizer = optim,
-        loss = loss,
-        metrics = metrics
-    )
+    if compile_model:
+        model.compile(
+            optimizer = optim,
+            loss = loss,
+            metrics = metrics
+        )
     return model
 
 def build_acnn_layers(input_tensor, depth, nfilters, nclasses):
@@ -804,6 +805,32 @@ def retrain_model(model_file, checkpoint, eval_data, metric, weights_file = None
         for layer in m.layers[:-1]:
             layer.trainable = False
     return m, checkpoint
+
+def get_blob_weights(m: models.Model, hdf5_url:str = None) -> models.Model:
+    """Load pre-trained weights from blob storage into a keras model
+
+    Provided url to a weights(.hdf5) file sored as azure blob, create a temporary local file
+    and load into a provided keras model
+
+    Parameters
+    ---
+    m: models.Model
+        keras model into which weights will be loaded
+    hdf5_url: str
+        authenticated url string to azure storage blob holding the weights file
+    
+    Return
+    ---
+    tf.keras.models.Model: input model with loaded weights
+    """
+    weight_client = BlobClient.from_blob_url(blob_url = hdf5_url)
+    model_downloader = weight_client.download_blob(0)  
+
+    with tempfile.NamedTemporaryFile(suffix = '.hdf5') as f:
+        model_downloader.readinto(f)
+        m = m.load_weight(f.name)
+    
+    return m
 
 def get_blob_model(h5_url: str = None, hdf5_url:str = None, custom_objects: dict = None) -> models.Model:
     """Load a keras model from blob storage to local machine
