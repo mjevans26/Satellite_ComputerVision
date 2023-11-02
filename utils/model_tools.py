@@ -828,7 +828,7 @@ def get_blob_weights(m: models.Model, hdf5_url:str = None) -> models.Model:
 
     with tempfile.NamedTemporaryFile(suffix = '.hdf5') as f:
         model_downloader.readinto(f)
-        m = m.load_weight(f.name)
+        m = m.load_weights(f.name)
     
     return m
 
