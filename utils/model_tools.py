@@ -836,7 +836,7 @@ def get_blob_model(model_blob_url: str = None, custom_objects: dict = None) -> m
         elif model_blob_url.endswith('.hdf5'):
             with tempfile.NamedTemporaryFile(suffix = '.hdf5') as f:
                 model_downloader.readinto(f)
-                m = models.load_model(f.name)
+                m = models.load_model(f.name, custom_objects = custom_objects, compile = False)
 
     # mp = Path('model.h5')
     # print('local model file', mp)
