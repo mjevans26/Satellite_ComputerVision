@@ -203,7 +203,9 @@ def get_s2_stac(dates, aoi):
     stackstac.stac()
     """
     # connect to the planetary computer catalog
-    catalog = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
+    catalog = pystac_client.Client.open(
+        "https://planetarycomputer.microsoft.com/api/stac/v1",
+        modifier = planetary_computer.sign_inplace)
 
     search = catalog.search(
         collections = ['sentinel-2-l2a'],
@@ -212,7 +214,7 @@ def get_s2_stac(dates, aoi):
         query={"eo:cloud_cover": {"lt": 10}} 
     )
 
-    s2items = [planetary_computer.sign(item).to_dict() for item in list(search.get_items())]
+    s2items = [item.to_dict() for item in list(search.get_items())]
     s2 = s2items[0]
     s2epsg = s2['properties']['proj:epsg']
     s2Stac = (
@@ -229,8 +231,8 @@ def get_s2_stac(dates, aoi):
 
     s2crs = s2Stac.attrs['crs']
     s2projected = s2Stac.rio.set_crs(s2crs)
-    trimmed = s2projected.rio.clip(geometries = [aoi], crs = 4326)
-    return trimmed, trimmed.rio.transform()
+    # trimmed = s2projected.rio.clip(geometries = [aoi], crs = 4326)
+    return s2projected
     
 def get_pc_imagery(aoi, dates, crs):
     """Get S2 imagery from Planetary Computer. REQUIRES a valid API token be added to the os environment

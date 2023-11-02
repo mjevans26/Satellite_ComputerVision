@@ -154,17 +154,19 @@ def sin_cos(t:int, freq:int = 6) -> tuple:
     theta = 2*math.pi * x
     return (math.sin(theta), math.cos(theta))
 
-def add_harmonic(timeseries: np.ndarray):
-    """ add harmonic variables to an imagery timeseries. currently assumes first image is start of year
-    B, T, H, W, C
-    """
-    in_shape = timeseries.shape
-    timesteps = in_shape[1]
-    tpls = [sin_cos(t, timesteps) for t in range(timesteps)]
-    xys = [np.stack([np.full((in_shape[0], in_shape[2], in_shape[3]), x), np.full((in_shape[0], in_shape[2], in_shape[3]), y)], axis = -1) for x,y in tpls]
-    harmonics = np.stack(xys, axis = 1)
-    harmonic_timeseries = np.concatenate([timeseries, harmonics], axis = -1)
-    return harmonic_timeseries
+def make_harmonics(times: np.ndarray, timesteps, dims):
+  """Create arrays of sin and cos representations of time
+  Parameters:
+      times (np.ndarray): 1D array of start times
+      timesteps (int): number of annual timesteps
+      dims (tpl): H, W dimensions of output data
+  Returns:
+      np.ndarray: 4D array (B, (dims), 2) with 
+  """
+  xys = [sin_cos(time, timesteps) for time in times] # use the T dimension to get number of intervals
+  # r = deg_to_radians(lat) # convert latitude to radians
+  out = np.stack([np.stack([np.full(dims, x), np.full(dims, y)], axis = -1) for x,y in xys], axis = 0)
+  return out
     
 def normalize_tensor(x, axes=[2], epsilon=1e-8, moments = None, splits = None):
     """

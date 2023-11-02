@@ -575,6 +575,42 @@ def get_lstm_model(n_channels, n_time, optim, metrics, loss, activation = layers
     )
     return model
 
+def get_lstm_autoencoder(n_channels, n_time, n_classes, optim, metrics, loss, activation = layers.ReLU(max_value = 2.0)):
+    """ Build and complie an LSTM autoencoder model in Keras
+
+    Params
+    ---
+    n_channels: int
+        number of image bands
+    n_time: int
+        number of time steps
+    activation: keras.activations
+        activation to use after the final dense layer
+    optim: keras.optimizer
+        optimizer to use during training
+    metrics: keras.metric
+        metrics to record during training
+    loss: keras.loss or callable
+        loss function to use during training
+
+    Return
+        keras.models.Model: lstm model compiled with provided optimizer, metrics, and loss
+    """
+    lstm_input = layers.Input((n_time, None, None, n_channels), name = 'timeseries_input')
+    sincos_input = layers.Input((None, None, 2), name = 'sincos_input')
+    lstm_output = build_lstm_layers(lstm_input)
+    concat_layer = layers.Concatenate(axis = -1)([lstm_output, sincos_input])
+    dense_layer = layers.Conv2D(32, [1,1], data_format = 'channels_last', padding = 'same')(concat_layer)
+    fully_connected_layer = layers.Conv2D(n_classes, [1,1], data_format = 'channels_last', padding = 'same')(dense_layer)
+    activated = activation(fully_connected_layer)
+    model = models.Model(inputs = [lstm_input, sincos_input], outputs = activated)
+    model.compile(
+        optimizer = optim,
+        loss = loss,
+        metrics = metrics
+    )
+    return model
+
 def get_hybrid_model(unet_dim, lstm_dim, n_classes, optim, metrics, loss, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2]):
     """Build and compile a hybrid U-Net/LSTM model in Keras
 
@@ -646,75 +682,80 @@ def get_acnn_model(nclasses, nfilters, nchannels, depth, optim, metrics, loss):
     return model
 
 ### MODEL EVALUATION TOOLS ###
-def make_confusion_matrix_data(tpl, model, multiclass = False):
-    """Create data needed to construct a confusion matrix on model predictions
-    Functions takes a tfrecord dataset consisting of input features and lables
-    and returns label and prediction vectors
+# def make_confusion_matrix_data(tpl, model, multiclass = False):
+#     predicted = model.predict(tpl[0], verbose = 1)
+#     print(len(predicted))
+#         # some models will outputs probs and classes as a list
+#     print(type(predicted))
+#     if type(predicted) == list:
+#         print(predicted[0].shape)
+#         preds = predicted[0]
+#         # in this case, concatenate list elments into a single 4d array along last dimension
+#     #   preds = np.concatenate(preds, axis = 3)
+#     else:
+#         print(predicted.shape)
+#         preds = predicted[0,:,:,:]
+#     labs = tpl[1]
+
+#     if multiclass:
+#         labels = np.argmax(labs, axis = -1).flatten()
+#         predictions = np.argmax(preds, axis = -1).flatten()
+
+#     else:
+#         predictions = np.squeeze(np.greater(preds, 0.5)).flatten()
+#         labels = np.squeeze(labs).flatten()
+
+#     return labels, predictions
+
+# def make_confusion_matrix(dataset, model, multiclass = False):
+#     data = dataset.unbatch().batch(1) # batch data
+#     iterator = iter(data) # create a vector to iterate over so that you can call for loop on this object
+#     i = 0
+#     m = model
+
+#     # while the iterator still has unread batches of data...
+#     while True:
+#         # try to create a dataset from the current batch
+#         try:
+#             tpl = next(iterator)
+#         # if the iterator is out of data, break loop
+#         except StopIteration:
+#             break
+#         # else with no error...
+#         else:
+#             # make our confusion matrix data for current batch
+#             labels, preds = make_confusion_matrix_data(tpl, m, multiclass)
+
+#             # create confusion matrix containing raw counts from current data
+#             nclasses = tpl[1].shape[-1]
+#             con_mat_current = tf.math.confusion_matrix(labels = labels, predictions = preds, num_classes = nclasses).numpy()
+#             # get row sums
+#             rowsums_current = con_mat_current.sum(axis = 1)
+#             # if we're on the first batch
+#             if i == 0:
+#                 con_mat = con_mat_current
+#             else:
+#                 con_mat = con_mat + con_mat_current
+#             i += 1
+#         print(i)
+#     return con_mat
+
+def normalize_confusion_matrix(arr: np.ndarray) -> np.ndarray:
+    """Normalize data in a confusion matrix so that rows (label categories)
+    sum to one
 
     Parameters:
-    dataset (tpl): features, labels tuple from tfDataset
-    model (keras Model): model used to make predictions
-    multiclass (bool): are labels multiclass or binary?
+    arr (np.ndarray): NxN array of contingency table frequencies
 
     Returns:
-    tuple: 1D label and prediction arrays from the input datset
+    np.ndarray: normalized confusion matrix with rows that sum to 1
     """
-    predicted = model.predict(tpl[0], verbose = 1)
-    print(len(predicted))
-        # some models will outputs probs and classes as a list
-    print(type(predicted))
-    if type(predicted) == list:
-        print(predicted[0].shape)
-        preds = predicted[0]
-        # in this case, concatenate list elments into a single 4d array along last dimension
-    #   preds = np.concatenate(preds, axis = 3)
-    else:
-        print(predicted.shape)
-        preds = predicted[0,:,:,:]
-    labs = tpl[1]
-
-    if multiclass:
-        labels = np.argmax(labs, axis = -1).flatten()
-        predictions = np.argmax(preds, axis = -1).flatten()
-
-    else:
-        predictions = np.squeeze(np.greater(preds, 0.5)).flatten()
-        labels = np.squeeze(labs).flatten()
-
-    return labels, predictions
-
-def make_confusion_matrix(dataset, model, multiclass = False):
-    data = dataset.unbatch().batch(1) # batch data
-    iterator = iter(data) # create a vector to iterate over so that you can call for loop on this object
-    i = 0
-    m = model
-
-    # while the iterator still has unread batches of data...
-    while True:
-        # try to create a dataset from the current batch
-        try:
-            tpl = next(iterator)
-        # if the iterator is out of data, break loop
-        except StopIteration:
-            break
-        # else with no error...
-        else:
-            # make our confusion matrix data for current batch
-            labels, preds = make_confusion_matrix_data(tpl, m, multiclass)
-
-            # create confusion matrix containing raw counts from current data
-            nclasses = tpl[1].shape[-1]
-            con_mat_current = tf.math.confusion_matrix(labels = labels, predictions = preds, num_classes = nclasses).numpy()
-            # get row sums
-            rowsums_current = con_mat_current.sum(axis = 1)
-            # if we're on the first batch
-            if i == 0:
-                con_mat = con_mat_current
-            else:
-                con_mat = con_mat + con_mat_current
-            i += 1
-        print(i)
-    return con_mat
+    rowsums = arr.sum(axis = 1)
+    projected = rowsums[:,np.newaxis]
+    con_mat_norm = arr/projected
+    # round all values to 3 decimal points
+    con_mat_norm = np.around(con_mat_norm , decimals = 4)
+    return con_mat_norm
 
 def retrain_model(model_file, checkpoint, eval_data, metric, weights_file = None, custom_objects = None, lr = None, freeze=None):
     """
