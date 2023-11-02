@@ -805,7 +805,7 @@ def retrain_model(model_file, checkpoint, eval_data, metric, weights_file = None
             layer.trainable = False
     return m, checkpoint
 
-def get_blob_model(model_blob_url: str, weights_blob_url: str = None, custom_objects: dict = None) -> models.Model:
+def get_blob_model(model_blob_url: str = None, custom_objects: dict = None) -> models.Model:
     """Load a keras model from blob storage to local machine
 
     Provided urls to a model structure (.h5) and weights (.hdf5) files stored as azure blobs, download local copies of
@@ -830,15 +830,13 @@ def get_blob_model(model_blob_url: str, weights_blob_url: str = None, custom_obj
 
     with io.BytesIO() as f:
         model_downloader.readinto(f)
-        with h5py.File(f, 'r') as h5file:
-            m = models.load_model(h5file, custom_objects = custom_objects, compile = False)
-
-    if weights_blob_url:
-        weights_client = BlobClient.from_blob_url(blob_url = weights_blob_url)
-        weights_downloader = weights_client.download_blob(0)
-        with tempfile.NamedTemporaryFile(suffix = '.hdf5') as f:
-            weights_downloader.readinto(f)
-            m.load_weights(f.name)
+        if model_blob_url.endswith('.h5'):
+            with h5py.File(f, 'r') as h5file:
+                m = models.load_model(h5file, custom_objects = custom_objects, compile = False)
+        elif model_blob_url.endswith('.hdf5'):
+            with tempfile.NamedTemporaryFile(suffix = '.hdf5') as f:
+                model_downloader.readinto(f)
+                m = models.load_model(f.name)
 
     # mp = Path('model.h5')
     # print('local model file', mp)
