@@ -727,3 +727,114 @@ def doPrediction(bucket, pred_path, pred_image_base, features, one_hot, out_imag
 #  !earthengine upload image --asset_id={out_image_asset} {out_image_files} {jsonFile}
   # return list of written image files for use in gee upload
   return out_image_files
+
+def predict_pc_local(aoi, dates, m, buff = 128, kernel = 256):
+    """Retrieve Sentinel-2 imagery from Microsoft Planetary Computer and run change detection
+    Arguments:
+        aoi (dict): GeoJson like dictionary defining area of interest
+        crs (int): 4-digit epsg code representing coordinate reference system of the aoi
+        dates (tpl<str>): Four YYYY-MM-DD strings defining the before and after periods
+        m (keras.Model): model to be used to make predictions
+        buff (int): buffer to strip from prediction patches
+        kernel (int): size of side of prediction patches
+    Return:
+        numpy.ndarray: 3D array with per-pixel change probabilities
+    """
+    # extract before and after dates from input in format required by PC
+    before_dates = f'{dates[0]}/{dates[1]}'
+    after_dates = f'{dates[2]}/{dates[3]}'
+
+    # get our before and after stacs
+    print('retrieving s2 data')
+    bef_stac, bef_transform = get_s2_stac(before_dates, aoi)
+    aft_stac, aft_transform = get_s2_stac(after_dates, aoi) # these are projected rioxarrays
+
+    # create median composites
+    bef_median = bef_stac.median(dim="time")
+    aft_median = aft_stac.median(dim="time")
+
+    #normalize
+    bef_norm = normalize_dataArray(bef_median, 'band')
+    aft_norm = normalize_dataArray(aft_median, 'band')
+    
+    # concatenate
+    ds = xr.concat([bef_norm, aft_norm], dim="band").assign_coords({'band':['B2', 'B3', 'B4', 'B8','B2_1', 'B3_1', 'B4_1', 'B8_1']})
+
+    C,H,W = ds.shape
+    print('data shape:', ds.shape) # from planetary computer this is C, H, W
+    rearranged = ds.transpose('y','x','band')
+    print('rearranged shape', rearranged.shape)
+    indices = prediction_tools.generate_chip_indices(rearranged, buff, kernel)
+    print(len(indices), 'indices generated')
+    template = np.zeros((H, W))
+    print('template shape:', template.shape)
+    # print('generating chips')
+    # chips, chip_indices = extract_chips(ds)
+    # print(len(chip_indices), 'chips generated')
+    dat = rearranged.values
+    print('running predictions')
+    output = predict_chips(dat, indices, template, m, kernel = kernel, buff = buff)
+
+    # print(f'returning array of {output.shape}')
+    return output, bef_median, aft_median, aft_transform
+
+def predict_pc_dask(model_blob_url, weights_blob_url, custom_objects, dates, aoi):
+    # # create a dask cluster
+    # print('spinning up Dask Cluster')
+    # cluster = GatewayCluster(
+    #     address = "https://pccompute.westeurope.cloudapp.azure.com/compute/services/dask-gateway",
+    #     proxy_address = "gateway://pccompute-dask.westeurope.cloudapp.azure.com:80",
+    #     auth = 'jupyterhub',
+    #     worker_cores = 4
+    # )
+
+    # client = cluster.get_client()
+    # client.upload_file(f'{str(ROOT)}/model_tools.py', load = True)
+
+    # # allow our dask cluster to adaptively scale from 2 to 24 nodes
+    # cluster.adapt(minimum=4, maximum=24)
+    # print('cluster created', cluster.dashboard_link)
+
+    # extract before and after dates from input in format required by PC
+    before_dates = f'{dates[0]}/{dates[1]}'
+    after_dates = f'{dates[2]}/{dates[3]}'
+
+    # get our before and after stacs
+    print('retrieving s2 data')
+    bef_stac = get_s2_stac(before_dates, aoi)
+    aft_stac = get_s2_stac(after_dates, aoi) # these are projected rioxarrays
+
+    # create median composites
+    bef_median = bef_stac.median(dim="time")
+    aft_median = aft_stac.median(dim="time")
+
+    #normalize
+    bef_norm = normalize_dataArray(bef_median, 'band')
+    aft_norm = normalize_dataArray(aft_median, 'band')
+    
+    # concatenate
+    ds = xr.concat([bef_norm, aft_norm], dim="band").assign_coords({'band':['B2', 'B3', 'B4', 'B8','B2_1', 'B3_1', 'B4_1', 'B8_1']})
+
+    trimmed = trim_dataArray(ds, 256)
+    chunked = trimmed.chunk({'x':256, 'y':256})
+
+    print('running chunked predictions')
+    meta = np.array([[]], dtype="float32")
+    predictions_array = chunked.data.map_overlap(
+        lambda x: predict_chunk(x, model_blob_url, weights_blob_url, custom_objects),
+        depth = (0, 64, 64),
+        boundary = 0,
+        meta=meta,
+        drop_axis=0    
+    )
+
+    # predictions = predictions_array
+
+    # # to restore spatial reference, cast back to Xarray
+    # out = xr.DataArray(
+    #     predictions,
+    #     coords=trimmed.drop_vars("band").coords,
+    #     dims=("y", "x"),
+    # )
+    
+    return(predictions_array)
