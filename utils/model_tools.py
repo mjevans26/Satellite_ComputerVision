@@ -575,7 +575,8 @@ def get_lstm_model(n_channels, n_time, optim, metrics, loss, activation = layers
     )
     return model
 
-def get_lstm_autoencoder(n_channels, n_time, n_classes, optim, metrics, loss, activation = layers.ReLU(max_value = 2.0)):
+def get_lstm_autoencoder(
+    n_channels, n_time, n_classes, activation = layers.ReLU(max_value = 2.0), compile = False, optim = None, metrics = None, loss = None):
     """ Build and complie an LSTM autoencoder model in Keras
 
     Params
@@ -604,11 +605,12 @@ def get_lstm_autoencoder(n_channels, n_time, n_classes, optim, metrics, loss, ac
     fully_connected_layer = layers.Conv2D(n_classes, [1,1], data_format = 'channels_last', padding = 'same')(dense_layer)
     activated = activation(fully_connected_layer)
     model = models.Model(inputs = [lstm_input, sincos_input], outputs = activated)
-    model.compile(
-        optimizer = optim,
-        loss = loss,
-        metrics = metrics
-    )
+    if compile:
+        model.compile(
+            optimizer = optim,
+            loss = loss,
+            metrics = metrics
+        )
     return model
 
 def get_hybrid_model(unet_dim, lstm_dim, n_classes, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2], compile_model = False, optim = None, metrics = None, loss = None):
