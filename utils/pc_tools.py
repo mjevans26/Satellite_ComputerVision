@@ -226,8 +226,8 @@ def get_s2_stac(dates, aoi):
 
     s2crs = s2Stac.attrs['crs']
     s2projected = s2Stac.rio.set_crs(s2crs)
-    # trimmed = s2projected.rio.clip(geometries = [aoi], crs = 4326)
-    return s2projected
+    clipped = s2projected.rio.clip(geometries = [aoi], crs = 4326)
+    return clipped
     
 def get_pc_imagery(aoi, dates, crs):
     """Get S2 imagery from Planetary Computer. REQUIRES a valid API token be added to the os environment
