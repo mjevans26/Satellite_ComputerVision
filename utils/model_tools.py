@@ -20,6 +20,8 @@ import io
 import h5py
 import tempfile
 
+## LOSS FXNS
+
 def weighted_categorical_crossentropy(target, output, weights, axis=-1):
     target = tf.convert_to_tensor(target)
     output = tf.convert_to_tensor(output)
@@ -158,8 +160,14 @@ def mse_4d(y_true, y_pred, eps=1e-6):
 
     return loss
 
-## UNET MODEL TOOLS ##
-def conv_block(input_tensor, num_filters):
+## CNN COMPONENTS
+def conv_batch_act(input_tensor, num_filters, kernel_size = (3,3), dilation_rate = 1):
+    x = layers.Conv2D(num_filters, kernel_size, padding= 'same', dilation_rate = dilation_rate)
+    x = layers.BatchNormalization()(x)
+    x = layers.Activation('relu')(x)
+    return x
+
+def conv_block(input_tensor, num_filters, kernel_size = (3,3), dilation_rate = 1):
     """U-Net convolution block (2x) conv -> batch norm -> relu
 
     Params
@@ -173,15 +181,17 @@ def conv_block(input_tensor, num_filters):
     ---
     tensorflow.keras.layer: output tensor after final activation
     """
-    encoder = layers.Conv2D(num_filters, (3, 3), padding='same')(input_tensor)
-    encoder = layers.BatchNormalization()(encoder)
-    encoder = layers.Activation('relu')(encoder)
-    encoder = layers.Conv2D(num_filters, (3, 3), padding='same')(encoder)
-    encoder = layers.BatchNormalization()(encoder)
-    encoder = layers.Activation('relu')(encoder)
-    return encoder
+    encoded = conv_batch_act(input_tensor, num_filters, kernel_size, dilation_rate)
+    # encoder = layers.Conv2D(num_filters, (3, 3), padding='same')(input_tensor)
+    # encoder = layers.BatchNormalization()(encoder)
+    # encoder = layers.Activation('relu')(encoder)
+    encoded = conv_batch_act(encoded, num_filters, kernel_size, dilation_rate)
+    # encoder = layers.Conv2D(num_filters, (3, 3), padding='same')(encoder)
+    # encoder = layers.BatchNormalization()(encoder)
+    # encoder = layers.Activation('relu')(encoder)
+    return encoded
 
-def encoder_block(input_tensor, num_filters, pool_size = (2,2)):
+def encoder_block(input_tensor, num_filters, kernel_size = (3,3), dilation_rate = 1, pool_size = (2,2)):
     """U-Net downsampling encoder block conv -> max pool
 
     Params
@@ -197,7 +207,7 @@ def encoder_block(input_tensor, num_filters, pool_size = (2,2)):
     ---
     tuple: two layers. first the downsampled result of convolution and max pooling, second the result of convolution with same dimensions as input
     """
-    encoder = conv_block(input_tensor, num_filters)
+    encoder = conv_block(input_tensor, num_filters, kernel_size, dilation_rate)
     encoder_pool = layers.MaxPooling2D(pool_size, strides=pool_size)(encoder)
     return encoder_pool, encoder
 
@@ -231,6 +241,24 @@ def decoder_block(input_tensor, concat_tensor, num_filters, up_size = (2,2)):
     decoder = layers.Activation('relu')(decoder)
     return decoder
 
+def DilatedSpatialPyramidPooling(input_tensor):
+    dims = input_tensor.shape
+    x = layers.AveragePooling2D(pool_size=(dims[-3], dims[-2]))(input_tensor)
+    x = conv_batch_act(x, kernel_size=(1,1), use_bias=True)
+    out_pool = layers.UpSampling2D(
+        size=(dims[-3] // x.shape[1], dims[-2] // x.shape[2]), interpolation="bilinear",
+    )(x)
+
+    out_1 = conv_batch_act(input_tensor, kernel_size=(1,1), dilation_rate=1)
+    out_3 = conv_batch_act(input_tensor, kernel_size=(3,3), dilation_rate=3)
+    out_6 = conv_batch_act(input_tensor, kernel_size=(3,3), dilation_rate=6)
+    out_12 = conv_batch_act(input_tensor, kernel_size=(3,3), dilation_rate=12)
+
+    x = layers.Concatenate(axis=-1)([out_pool, out_1, out_3, out_6, out_12])
+    output = conv_batch_act(x, kernel_size=(1,1))
+    return output
+
+## MODEL CONSTRUCTION
 def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2]):
     """Create U-Net layers
 
@@ -382,48 +410,6 @@ def get_binary_model(input_tensor, optim, loss, mets, bias = None):
 
     return model
 
-def get_multiclass_model(depth, nclasses, optim, loss, mets, bias = None):
-    """
-    Build a U-Net model
-    Parameters:
-        depth (int): number of training features (i.e. bands)
-        nclasses (int): number of output classes
-        optim (tf.keras.optimizer): keras optimizer
-        loss (tf.keras.loss): keras or custom loss function
-        mets (dict<tf.keras.metrics): dictionary of metrics for logits and classes. elements are lists of keras metrics
-    Returns:
-        tf.keras.model: compiled U-Net model
-    """
-    if bias is not None:
-        bias = tf.keras.initializers.Constant(bias)
-        
-    inputs = layers.Input(shape=[None, None, depth]) # 256
-    encoder0_pool, encoder0 = encoder_block(inputs, 32) # 128
-    encoder1_pool, encoder1 = encoder_block(encoder0_pool, 64) # 64
-    encoder2_pool, encoder2 = encoder_block(encoder1_pool, 128) # 32
-    encoder3_pool, encoder3 = encoder_block(encoder2_pool, 256) # 16
-    encoder4_pool, encoder4 = encoder_block(encoder3_pool, 512) # 8
-    center = conv_block(encoder4_pool, 1024) # center
-    decoder4 = decoder_block(center, encoder4, 512) # 16
-    decoder3 = decoder_block(decoder4, encoder3, 256) # 32
-    decoder2 = decoder_block(decoder3, encoder2, 128) # 64
-    decoder1 = decoder_block(decoder2, encoder1, 64) # 128
-    decoder0 = decoder_block(decoder1, encoder0, 32) # 256
-    logits = layers.Conv2D(nclasses, (1,1), activation = 'softmax', name = 'logits')(decoder0)
-    # logits = layers.Conv2D(1, (1, 1), activation='sigmoid', bias_initializer = bias, name = 'logits')(decoder0)
-    # logits is a probability and classes is binary. in solar, "tf.cast(tf.greater(x, 0.9)" was used  to avoid too many false positives
-    classes = layers.Lambda(lambda x: tf.one_hot(tf.argmax(x, axis = -1), depth = nclasses), name = 'classes')(logits)
-    model = models.Model(inputs=[inputs], outputs=[logits, classes])
-    # model = models.Model(inputs = [inputs], outputs = [outputs])
-
-    model.compile(
-            optimizer=optim, 
-            loss = {'logits': loss},
-            #loss=losses.get(LOSS),
-            metrics=mets)
-
-    return model
-
 def get_autoencoder(depth, optim, loss, mets):
     """
     Build a U-Net model
@@ -474,6 +460,40 @@ def siamese_path(depth):
     # return the model to the calling function
     return model
 
+def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2]):
+    """Create U-Net layers
+
+    Params
+    ---
+    input_tensor: np.ndarray or tensorflow.keras.layer
+        4D array of input data (B, H, W, C)
+    filters: list[int]
+        number of filters in each encoder layer
+    factors: list[int]
+        down/upsampling factor in each encoder/decoder layer. must be same length as filters
+
+    Return
+    ---
+    tf.keras.layer
+    """
+    assert len(filters) == len(factors), 'number of filters and factors must be equal'
+    levels = len(filters)
+    net = {}
+    for i, filt in enumerate(filters):
+        factor = factors[i]
+        encoder_name = f'encoder_{i}'
+        encoder_pool_name = f'encoder_pool_{i}'
+        attention_name =f'attention_{i}'
+        if i == 0:
+            encoder_pool, encoder = encoder_block(input_tensor, filt, (factor, factor))
+        else:
+            encoder_pool, encoder = encoder_block(encoder_pool, filt, (factor, factor))
+        attention = attention_module(encoder_pool)
+        net[encoder_name] = encoder
+        net[attention_name] = attention
+
+    bitemporal = layers.TimeDistributed()
+
 def get_siamese_unet(depth, optim, loss, mets, bias = None):
     midpoint = depth//2
     input = Input((None, None, depth))
@@ -493,7 +513,7 @@ def get_siamese_unet(depth, optim, loss, mets, bias = None):
     return model  
 
 ### LSTM MODEL TOOLS ###
-def build_lstm_layers(input_tensor):
+def build_lstm_layers(input_tensor, return_sequences = False):
     """Build the layers of an LSTM Keras model
 
     Params
@@ -532,7 +552,7 @@ def build_lstm_layers(input_tensor):
         padding= 'same',
         data_format = 'channels_last',
         activation = None,
-        return_sequences = False,
+        return_sequences = return_sequences, # optionally return the last hidden state, or sequence of hidden states
         return_state = False,
         name = 'dilated_conv_lstm'
     )(activated)
@@ -598,19 +618,44 @@ def get_lstm_autoencoder(
         keras.models.Model: lstm model compiled with provided optimizer, metrics, and loss
     """
     lstm_input = layers.Input((n_time, None, None, n_channels), name = 'timeseries_input')
+    # rev_input = layers.Lambda(lambda x: K.reverse(lstm_input, axes = 0), name = 'reverse input')(lstm_input)
     sincos_input = layers.Input((None, None, 2), name = 'sincos_input')
-    lstm_output = build_lstm_layers(lstm_input)
-    concat_layer = layers.Concatenate(axis = -1)([lstm_output, sincos_input])
-    dense_layer = layers.Conv2D(32, [1,1], data_format = 'channels_last', padding = 'same')(concat_layer)
-    fully_connected_layer = layers.Conv2D(n_classes, [1,1], data_format = 'channels_last', padding = 'same')(dense_layer)
-    activated = activation(fully_connected_layer)
-    model = models.Model(inputs = [lstm_input, sincos_input], outputs = activated)
-    if compile:
-        model.compile(
-            optimizer = optim,
-            loss = loss,
-            metrics = metrics
-        )
+
+    # build encoder LSTM
+    encoded = build_lstm_layers(lstm_input, return_sequences = False)
+    concatenated = layers.Concatenate(axis = -1, name = 'concat')([encoded, sincos_input])
+
+    # branch 1 - predicting reversed sequence
+    # repeated = layers.RepeatVector(n_time)(concatenated) 
+    repeated = tf.stack([concatenated]*n_time, axis = 1)
+    decoded = layers.ConvLSTM2D(
+        filters = 32,
+        kernel_size = [3,3],
+        padding = 'same',
+        data_format = 'channels_last',
+        activation = None,
+        return_sequences = True,
+        return_state = False,
+        name = 'lstm_decoder'
+    )(repeated)
+    # decoded = build_lstm_layers(repeated, return_sequences = True)
+    temporal_dense = layers.Conv2D(n_classes, [1,1], data_format = 'channels_last', padding = 'same', name = 'temporal_dense')
+    temporal_decoded = layers.TimeDistributed(temporal_dense)(decoded)
+    temporal_activated = activation(temporal_decoded)
+    
+    # branch 1 - predicting next time step
+    single_dense = layers.Conv2D(
+        n_classes, [1,1], data_format = 'channels_last', padding = 'same', name = 'single_dense')(concatenated)
+    # fully_connected_layer = layers.Conv2D(n_classes, [1,1], data_format = 'channels_last', padding = 'same')(single_dense)
+    single_activated = activation(single_dense)
+
+    model = models.Model(inputs = [lstm_input, sincos_input], outputs = [temporal_activated, single_activated])
+    # if compile:
+    #     model.compile(
+    #         optimizer = optim,
+    #         loss = loss,
+    #         metrics = metrics
+    #     )
     return model
 
 def get_hybrid_model(unet_dim, lstm_dim, n_classes, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2], compile_model = False, optim = None, metrics = None, loss = None):
