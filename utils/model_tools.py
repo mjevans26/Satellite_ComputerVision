@@ -718,15 +718,15 @@ def build_acnn_layers(input_tensor, depth, nfilters, nclasses):
     logits = layers.Conv2D(filters = nclasses, kernel_size = (1,1), padding = 'same', activation = 'softmax', name = 'probabilities')(relu)
     return logits
 
-def get_acnn_model(nclasses, nfilters, nchannels, depth, optim, metrics, loss):
+def get_acnn_model(nclasses, nfilters, nchannels, depth):
     acnn_input = layers.Input((None, None, nchannels))
     logits = build_acnn_layers(acnn_input, depth = depth, nfilters = nfilters, nclasses = nclasses)
     model = models.Model(inputs = acnn_input, outputs = logits)
-    model.compile(
-        optimizer = optim,
-        loss = loss,
-        metrics = metrics
-    )
+    # model.compile(
+    #     optimizer = optim,
+    #     loss = loss,
+    #     metrics = metrics
+    # )
     return model
 
 ### MODEL EVALUATION TOOLS ###
