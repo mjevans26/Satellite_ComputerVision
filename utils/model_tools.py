@@ -93,7 +93,7 @@ def gen_dice(y_true, y_pred, eps=1e-6, global_weights = None):
     # dices = tf.where(tf.math.is_finite(dices), dices, tf.zeros_like(dices))
     return tf.reduce_mean(dices)
 
-def weighted_bce(y_true, y_pred, weight):
+def weighted_bce(y_true, y_pred, pos_weight, logits = False):
     """
     Compute the weighted binary cross entropy between predictions and observations
     Parameters:
@@ -103,7 +103,12 @@ def weighted_bce(y_true, y_pred, weight):
     Returns:
         2D tensor
     """
-    bce = tf.nn.weighted_cross_entropy_with_logits(labels = y_true, logits = y_pred, pos_weight = weight)
+    
+    if logits:
+        bce = tf.nn.weighted_cross_entropy_with_logits(labels = y_true, logits = y_pred, pos_weight = pos_weight)
+    else:
+        y_preds = tf.clip_by_value(y_pred, 0.00001, 0.99999)
+        bce = y_true * -tf.math.log(y_preds) * pos_weight + (1 - y_true) * -tf.math.log(1 - y_preds)
     return tf.reduce_mean(bce)
 
 # def dice_coef(y_true, y_pred, smooth=1, weight=0.5):
@@ -161,37 +166,100 @@ def mse_4d(y_true, y_pred, eps=1e-6):
     return loss
 
 ## CNN COMPONENTS
-def conv_batch_act(input_tensor, num_filters, kernel_size = (3,3), dilation_rate = 1):
-    x = layers.Conv2D(num_filters, kernel_size, padding= 'same', dilation_rate = dilation_rate)
-    x = layers.BatchNormalization()(x)
-    x = layers.Activation('relu')(x)
-    return x
+# def conv_batch_act(input_tensor, num_filters, kernel_size = (3,3), dilation_rate = 1):
+#     x = layers.Conv2D(num_filters, kernel_size, padding= 'same', dilation_rate = dilation_rate)
+#     x = layers.BatchNormalization()(x)
+#     x = layers.Activation('relu')(x)
+#     return x
+class conv_batch_act(layers.Layer):
+    """Single convolution -> batch norm -> activation layer stack"""
+    def __init__(self, num_filters, kernel_size = (3,3), dilation_rate = 1, name = 'conv_batch_act', **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.conv_layer = layers.Conv2D(num_filters, kernel_size, padding = 'same', dilation_rate = dilation_rate)
+        self.bn_layer = layers.BatchNormalization()
+        self.activation_layer = layers.Activation('relu')
 
-def conv_block(input_tensor, num_filters, kernel_size = (3,3), dilation_rate = 1):
-    """U-Net convolution block (2x) conv -> batch norm -> relu
+    def call(self, inputs):
+        y = self.conv_layer(inputs)
+        y = self.bn_layer(y)
+        y = self.activation_layer(y)
+        return y
+# def conv_block(input_tensor, num_filters, kernel_size = (3,3), dilation_rate = 1):
+#     """U-Net convolution block (2x) conv -> batch norm -> relu
 
-    Params
-    ---
-    input_tensor: np.ndarray or tensorflow.keras.layer
-        4D array of input data (B, H, W, C)
-    num_filters: int
-        number of filters in convolutional layers
+#     Params
+#     ---
+#     input_tensor: np.ndarray or tensorflow.keras.layer
+#         4D array of input data (B, H, W, C)
+#     num_filters: int
+#         number of filters in convolutional layers
 
-    Return
-    ---
-    tensorflow.keras.layer: output tensor after final activation
-    """
-    encoded = conv_batch_act(input_tensor, num_filters, kernel_size, dilation_rate)
-    # encoder = layers.Conv2D(num_filters, (3, 3), padding='same')(input_tensor)
-    # encoder = layers.BatchNormalization()(encoder)
-    # encoder = layers.Activation('relu')(encoder)
-    encoded = conv_batch_act(encoded, num_filters, kernel_size, dilation_rate)
-    # encoder = layers.Conv2D(num_filters, (3, 3), padding='same')(encoder)
-    # encoder = layers.BatchNormalization()(encoder)
-    # encoder = layers.Activation('relu')(encoder)
-    return encoded
+#     Return
+#     ---
+#     tensorflow.keras.layer: output tensor after final activation
+#     """
+#     encoded = conv_batch_act(input_tensor, num_filters, kernel_size, dilation_rate)
+#     # encoder = layers.Conv2D(num_filters, (3, 3), padding='same')(input_tensor)
+#     # encoder = layers.BatchNormalization()(encoder)
+#     # encoder = layers.Activation('relu')(encoder)
+#     encoded = conv_batch_act(encoded, num_filters, kernel_size, dilation_rate)
+#     # encoder = layers.Conv2D(num_filters, (3, 3), padding='same')(encoder)
+#     # encoder = layers.BatchNormalization()(encoder)
+#     # encoder = layers.Activation('relu')(encoder)
+#     return encoded
 
-def encoder_block(input_tensor, num_filters, kernel_size = (3,3), dilation_rate = 1, pool_size = (2,2)):
+class conv_block(layers.Layer):
+    """U-Net convolution block (2x) conv -> batch norm -> relu"""
+    def __init__(self, num_filters, kernel_size = (3,3), dilation_rate = 1, name = 'conv_block', **kwargs):
+        """
+        Parameters
+        ---
+        num_filters: int
+            number of filters in convolutional layers
+        kernel_size: tpl(int, int):
+            size of convolutional kernels
+        dilation_rate: int
+            dilatrion rate for atrous convolution
+        """
+        super().__init__(name = name, **kwargs)
+        self.cba1 = conv_batch_act(num_filters, kernel_size, dilation_rate)
+        self.cba2 = conv_batch_act(num_filters, kernel_size, dilation_rate)
+
+    def call(self, inputs):
+        """
+        Params
+        ---
+        input_tensor: np.ndarray or tensorflow.keras.layer
+            4D array of input data (B, H, W, C)
+        Return
+        ---
+        tensorflow.Tensor or np.ndarray: output tensor after final activation
+        """
+        y = self.cba1(inputs)
+        y = self.cba1(inputs)
+        return y
+
+# def encoder_block(input_tensor, num_filters, kernel_size = (3,3), dilation_rate = 1, pool_size = (2,2)):
+#     """U-Net downsampling encoder block conv -> max pool
+
+#     Params
+#     ---
+#     input_tensor: np.ndarray or tensorflow.keras.layer
+#         4D array of input data (B, H, W, C)
+#     num_filters: int
+#         number of filters in convolutional kernals
+#     pool_size: tuple(int, int)
+#         size and stride of max poooling kernel. controls magnitude of downsampling
+
+#     Return:
+#     ---
+#     tuple: two layers. first the downsampled result of convolution and max pooling, second the result of convolution with same dimensions as input
+#     """
+#     encoder = conv_block(input_tensor, num_filters, kernel_size, dilation_rate)
+#     encoder_pool = layers.MaxPooling2D(pool_size, strides=pool_size)(encoder)
+#     return encoder_pool, encoder
+
+class encoder_block(layers.Layer):
     """U-Net downsampling encoder block conv -> max pool
 
     Params
@@ -207,9 +275,15 @@ def encoder_block(input_tensor, num_filters, kernel_size = (3,3), dilation_rate 
     ---
     tuple: two layers. first the downsampled result of convolution and max pooling, second the result of convolution with same dimensions as input
     """
-    encoder = conv_block(input_tensor, num_filters, kernel_size, dilation_rate)
-    encoder_pool = layers.MaxPooling2D(pool_size, strides=pool_size)(encoder)
-    return encoder_pool, encoder
+    def __init__(self, num_filters, kernel_size = (3,3), dilation_rate = 1, pool_size = (2,2), name = 'encoder_block', **kwargs):
+      super().__init__(name = name, **kwargs)
+      self.encoder = conv_block(num_filters, kernel_size, dilation_rate)
+      self.pooler = layers.MaxPooling2D(pool_size, strides = pool_size)
+
+    def call(self, input):
+      encoded = self.encoder(input)
+      pooled = self.pooler(encoded)
+      return pooled, encoded
 
 def decoder_block(input_tensor, concat_tensor, num_filters, up_size = (2,2)):
     """U-Net upsampling decoder block tanspose_conv -> concatenate -> batch norm -> relu -> 2(conv -> batch norm -> relu)
@@ -241,23 +315,6 @@ def decoder_block(input_tensor, concat_tensor, num_filters, up_size = (2,2)):
     decoder = layers.Activation('relu')(decoder)
     return decoder
 
-def DilatedSpatialPyramidPooling(input_tensor):
-    dims = input_tensor.shape
-    x = layers.AveragePooling2D(pool_size=(dims[-3], dims[-2]))(input_tensor)
-    x = conv_batch_act(x, kernel_size=(1,1), use_bias=True)
-    out_pool = layers.UpSampling2D(
-        size=(dims[-3] // x.shape[1], dims[-2] // x.shape[2]), interpolation="bilinear",
-    )(x)
-
-    out_1 = conv_batch_act(input_tensor, kernel_size=(1,1), dilation_rate=1)
-    out_3 = conv_batch_act(input_tensor, kernel_size=(3,3), dilation_rate=3)
-    out_6 = conv_batch_act(input_tensor, kernel_size=(3,3), dilation_rate=6)
-    out_12 = conv_batch_act(input_tensor, kernel_size=(3,3), dilation_rate=12)
-
-    x = layers.Concatenate(axis=-1)([out_pool, out_1, out_3, out_6, out_12])
-    output = conv_batch_act(x, kernel_size=(1,1))
-    return output
-
 ## MODEL CONSTRUCTION
 def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2]):
     """Create U-Net layers
@@ -283,19 +340,24 @@ def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors =
         encoder_name = f'encoder{i}'
         encoder_pool_name = f'encoder_pool{i}'
         if i == 0:
-            encoder_pool, encoder = encoder_block(input_tensor, filt, (factor, factor))
+            encoder = encoder_block(filt, (factor, factor))
+            encoder_pool, encoded = encoder(input_tensor)
         else:
-            encoder_pool, encoder = encoder_block(encoder_pool, filt, (factor, factor))
-        net[encoder_name] = encoder
+            encoder = encoder_block(filt, (factor, factor))
+            encoder_pool, encoded = encoder(encoder_pool)
+        net[encoder_name] = encoded
         net[encoder_pool_name] = encoder_pool
 
-    center = conv_block(net[f'encoder_pool{levels-1}'], filters[-1]*2)
+    conv = conv_block(filters[-1]*2)
+    center = conv(net[f'encoder_pool{levels-1}'])
 
-    for i in range(1, levels+1):
-        j = levels - i
+    # for i in range(1, levels+1):
+    for j in range(levels-1, -1, -1):
+        # j = levels - i
         factor = factors[j]
         filt = filters[j]
-        if i == 1:
+        if j == levels-1:
+        # if i == 1:
             decoder = decoder_block(center, net[f'encoder{j}'], filt, up_size = (factor, factor))
         else:
             decoder = decoder_block(decoder, net[f'encoder{j}'], filt, up_size = (factor, factor))
@@ -315,7 +377,7 @@ def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors =
     # decoder0 = decoder_block(decoder1, encoder0, 32) # 256
     # return decoder0
 
-def get_unet_model(nclasses, nchannels, optim, mets, loss, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2], bias = None):
+def get_unet_model(nclasses, nchannels, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2], bias = None):
     if bias is not None:
         bias = tf.keras.initializers.Constant(bias)
     inputs = layers.Input(shape = [None, None, nchannels])
@@ -323,11 +385,11 @@ def get_unet_model(nclasses, nchannels, optim, mets, loss, filters = [32, 64, 12
     logits = layers.Conv2D(nclasses, (1,1), activation = 'softmax', bias_initializer = bias, name = 'logits')(decoder)
     classes = layers.Lambda(lambda x: tf.cast(tf.math.argmax(x, axis = -1), dtype = tf.int32), name = 'classes')(logits)
     model = models.Model(inputs = inputs, outputs = [logits, classes])
-    model.compile(
-            optimizer=optim, 
-            loss = loss,
-            #loss=losses.get(LOSS),
-            metrics=mets)
+    # model.compile(
+    #         optimizer=optim, 
+    #         loss = loss,
+    #         #loss=losses.get(LOSS),
+    #         metrics=mets)
 
     return model
 
@@ -447,70 +509,137 @@ def get_autoencoder(depth, optim, loss, mets):
 
     return model
 
-def siamese_path(depth):
-    # specify the inputs for the feature extractor network
-    # define the first set of CONV => RELU => POOL => DROPOUT layers
-    inputs = Input(shape = (None, None, depth))
-    conv1 = Conv2D(64, (3, 3), padding="same", activation="relu")(inputs)
-    conv2 = Conv2D(64, (3, 3), padding="same", activation="relu")(conv1)
-    conv3 = Conv2D(64, (3, 3), padding ="same", activation="relu")(conv2)
-    concat = Concatenate(axis = -1)([conv1, conv2, conv3])
-    # build the model - returns a list of arrays
-    model = Model(inputs = inputs, outputs = concat)
-    # return the model to the calling function
-    return model
+class DilatedSpatialPyramidPooling(layers.Layer):
+    def __init__(self, num_filters, name = 'ASPP', **kwargs):
+        """Initiate internal atrous convolutional layers
+        Parameters
+        ---
+        num_filters:int
+            depth of convolutional layers
+        """
+        super().__init__(name = name, **kwargs)
+        # self.dims = in_dims
+        # self.avgpool = layers.AveragePooling2D(pool_size=(self.dims[-3], self.dims[-2]))
+        self.cba = conv_batch_act(num_filters, kernel_size=(1,1), dilation_rate = 1)
+        self.cba2 = conv_batch_act(num_filters, kernel_size=(1,1), dilation_rate = 1)
+        self.cba3 = conv_batch_act(num_filters, kernel_size=(1,1), dilation_rate = 1)
+        self.cba3_3 = conv_batch_act(num_filters, kernel_size=(3,3), dilation_rate=3)
+        self.cba3_6 = conv_batch_act(num_filters, kernel_size=(3,3), dilation_rate=6)
+        self.cba3_12 = conv_batch_act(num_filters, kernel_size=(3,3), dilation_rate=12)
+        # self.upsample = layers.UpSampling2D(size=(self.dims[-3] // x.shape[1], self.dims[-2] // x.shape[2]), interpolation="bilinear")
 
-def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2]):
-    """Create U-Net layers
+    def call(self, input):
+        """Forward pass input array through Atrous SPatial Pyramid Pooling
+        Parameters
+        ---
+        input: np.ndarray or tf.Tensro
+            4D (B,H,W,C) array
+        Return
+        ---
+        np.ndarray: 4D (B, H, W, C) result of ASPP
+        """
+        dims = input.shape
+        out_1 = self.cba(input)
+        out_3 = self.cba3_3(input)
+        out_6 = self.cba3_6(input)
+        out_12 = self.cba3_12(input)
 
-    Params
+        # x = layers.AveragePooling2D(pool_size=(dims[-3], dims[-2]))(input)
+        # x = self.cba2(x)
+        # x = layers.UpSampling2D(size=(dims[-3] // x.shape[1], dims[-2] // x.shape[2]), interpolation="bilinear")(x)
+
+        x = layers.Concatenate(axis=-1)([out_1, out_3, out_6, out_12])
+        output = self.cba3(x)
+        return output
+
+def get_siamese_layers(input_a, input_b, filters= [32, 64, 128], factors= [2,2,2]):
+    """Build the encoder, spatial pyramid pooling, and decoder layers of a siamese unet
+
+    Parameters
     ---
-    input_tensor: np.ndarray or tensorflow.keras.layer
-        4D array of input data (B, H, W, C)
-    filters: list[int]
-        number of filters in each encoder layer
-    factors: list[int]
-        down/upsampling factor in each encoder/decoder layer. must be same length as filters
-
+    input_a: np.ndarray or tf.Tensor
+        3D image array (H,W,C) at T2
+    input_b: np.ndarray or tfTensor
+        3D image array (H,W,C) at T1
+    n_channels: int
+        number of image channels
+    filters: list(int)
+        list of feature depths for convolutional filters per block
+    factors: list(int)
+        list of downsampling factors per convolutional block
+    
     Return
     ---
-    tf.keras.layer
+    np.ndarray: 3D array of binary change probability from T1 -> T2
     """
-    assert len(filters) == len(factors), 'number of filters and factors must be equal'
+    
+    assert len(filters) == len(factors), 'filters and factors must be same length'
     levels = len(filters)
     net = {}
     for i, filt in enumerate(filters):
         factor = factors[i]
         encoder_name = f'encoder_{i}'
         encoder_pool_name = f'encoder_pool_{i}'
-        attention_name =f'attention_{i}'
         if i == 0:
-            encoder_pool, encoder = encoder_block(input_tensor, filt, (factor, factor))
+            encoder = encoder_block(filt, (factor,factor), name = encoder_name)
+            pooled_a, encoded_a = encoder(input_a)
+            pooled_b, encoded_b = encoder(input_b)
+            encoded = layers.Concatenate(axis = -1)([encoded_b, encoded_a])
         else:
-            encoder_pool, encoder = encoder_block(encoder_pool, filt, (factor, factor))
-        attention = attention_module(encoder_pool)
-        net[encoder_name] = encoder
-        net[attention_name] = attention
+            encoder = encoder_block(filt, (factor, factor), name = encoder_name)
+            pooled_a, encoded_a = encoder(pooled_a)
+            pooled_b, encoded_b = encoder(pooled_b)
+            encoded = layers.Concatenate(axis = -1)([encoded_b, encoded_a])
+        net[encoder_name] = encoded
 
-    bitemporal = layers.TimeDistributed()
+    aspp = DilatedSpatialPyramidPooling(filters[-1]*2)
+    aspp_a = aspp(pooled_a)
+    aspp_b = aspp(pooled_b)
 
-def get_siamese_unet(depth, optim, loss, mets, bias = None):
-    midpoint = depth//2
-    input = Input((None, None, depth))
-    temporal = tf.stack([input[:, :, :, :midpoint], input[:, :, :, midpoint:]], axis = 1)
-    print(temporal.shape)
-    branch = siamese_path(midpoint)
-    bitemporal = TimeDistributed(branch)(temporal)
-    difference = tf.subtract(bitemporal[:,0,:,:,:], bitemporal[:,1,:,:,:])
-    unet_depth = difference.shape[-1]
-    unet = binary_unet(difference, bias)
-    model = Model(inputs = input, outputs = unet)
-    model.compile(
-        optimizer=optim, 
-        loss = {'logits': loss},
-        #loss=losses.get(LOSS),
-        metrics=mets)
-    return model  
+    # conv = conv_block(filters[-1]*2)
+    # center_a = conv(pooled_a)
+    # center_b = conv(pooled_b)
+
+    squeezed = layers.Concatenate(axis = -1)([aspp_b, aspp_a])
+
+    for j in range(levels-1, -1, -1):
+        factor = factors[j]
+        filt = filters[j]
+        if j == levels-1:
+            decoder = decoder_block(squeezed, net[f'encoder_{j}'], filt, up_size = (factor, factor))
+        else:
+            decoder = decoder_block(decoder, net[f'encoder_{j}'], filt, up_size = (factor, factor))
+
+    # logits = layers.Conv2D(n_classes, (1,1), activation = 'softmax')(decoder)
+
+    return decoder
+
+def make_siamese_unet(n_channels, filters, factors, bias = None, class_thresh = 0.5):
+    """Create a siamese unet model
+
+    Parameters
+    ---
+    n_channels: int
+        number of image channels
+    n_classes: int
+        number of output classes
+    filters: list(int)
+        list of feature depths for convolutional filters per block
+    factors: list(int)
+        list of downsampling factors per convolutional block
+    
+    Return
+    ---
+    keras.models.Model: model taking two 3D image inputs and returing a 3D probability array
+    """
+    # threshold = tf.constant([class_thresh])
+    input_a = layers.Input((None, None, n_channels))
+    input_b = layers.Input((None, None, n_channels))
+    decoder = get_siamese_layers(input_a, input_b, filters = filters, factors = factors)
+    probs = layers.Conv2D(1, (1,1), activation = 'sigmoid', bias_initializer = bias, name = 'probs')(decoder)
+    classes = layers.Lambda(lambda x: tf.cast(tf.math.greater(x, class_thresh), dtype = tf.int32), name = 'classes')(probs)
+    m = models.Model(inputs = [input_a, input_b], outputs = [probs, classes])
+    return m
 
 ### LSTM MODEL TOOLS ###
 def build_lstm_layers(input_tensor, return_sequences = False):

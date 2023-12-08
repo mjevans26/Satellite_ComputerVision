@@ -403,7 +403,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
     """Generates data for Keras
     Sequence based data generator. Suitable for building data generator for training and prediction.
     """
-    def __init__(self, labelfiles, s2files, naipfiles, lidarfiles = None, lufiles = None,
+    def __init__(self, labelfiles = None, s2files = None, naipfiles = None, lidarfiles = None, lufiles = None,
                  to_fit=True, batch_size=32, dim=(256, 256),
                  n_channels=4, n_classes = 8, shuffle=True,
                  splits = None, moments = None, translations = None):
@@ -460,9 +460,13 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
     def _get_x_data(self, files_temp):
         # arrays come from PC in (C, H, W) format
         arrays = [np.load(f) for f in files_temp]
+        array_shapes = [x.shape for x in arrays]
         try:
             assert len(arrays) == self.batch_size
-            assert all([x.shape[1:4] == (self.dim[0], self.dim[1]) for x in arrays])
+            # make sure everything is 3D
+            assert all([len(x) == 3 for x in array_shapes])
+            # ensure all arrays are channels first
+            arrays = [np.moveaxis(x, source = -1, destination = 0) if x.shape[-1] < x.shape[0] else x for x in arrays]
             # creat a single (B, C, H, W) array per batch
             batch = np.stack(arrays, axis = 0)
             in_shape = batch.shape
@@ -569,11 +573,81 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         else:
             return xData
 
+class SiameseDataGenerator(UNETDataGenerator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # do an initial shuffle for cases where the generator is called fresh at the start of each epoch
+        if self.shuffle == True:
+            print('shuffling')
+            np.random.shuffle(self.indexes)
+        print(self.batch_size)
+    def __len__(self):
+        """Denotes the number of batches per epoch
+
+        :return: number of batches per epoch
+        """
+        return UNETDataGenerator.__len__(self)
+
+    def on_epoch_end(self):
+        """Updates indexes after each epoch
+
+        """
+        UNETDataGenerator.on_epoch_end(self)
+
+    def _process_y(self, indexes):
+        # get label files for current batch
+        lc_files = [self.labelfiles[k] for k in indexes]
+        lc_arrays = [np.squeeze(np.load(file)) for file in lc_files] # make all labels 2D to start
+        try:
+            assert len(lc_arrays) == self.batch_size
+            lc = np.stack(lc_arrays, axis = 0) #(B, H, W)
+            int_labels = lc.astype(int)
+            binary = np.where(int_labels > 1, 1, int_labels)
+            # If necessary, trim data to (-1, dims[0], dims[1])
+            in_shape = binary.shape # -> (B, H, W)
+            trim = ((in_shape[1] - self.dim[0])//2, (in_shape[2] - self.dim[1])//2) 
+            array = binary[:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
+
+            # add channel dimension (B, H, W) -> (B, H, W, C) expected by model
+            reshaped = np.expand_dims(array, -1)
+            return reshaped
+        except AssertionError:
+            return None
+        
+    def __getitem__(self, index):
+        """Generate one batch of data
+
+        :param index: index of the batch
+        :return: X and y when fitting. X only when predicting
+        """
+        # Generate indexes of the batch
+        indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
+
+        s2Data = UNETDataGenerator._get_s2_data(self, indexes)
+
+        labels = self._process_y(indexes)
+        
+        # perform morphological augmentation - expects a 3D (H, W, C) image array
+        stacked = np.concatenate([s2Data, labels], axis = -1)
+        morphed = aug_array_morph(stacked)
+        # print('augmented max', np.nanmax(augmented, axis = (0,1,2)))
+
+        feats_b = morphed[:,:,:,0:self.n_channels]
+        feats_a = morphed[:,:,:,self.n_channels:-1]
+        labels = morphed[:,:,:,-1:]
+
+        if self.to_fit:
+            return [feats_b, feats_a], labels
+        else:
+            return [feats_b, feats_a]
+    
+
 class LSTMDataGenerator(tf.keras.utils.Sequence):
     """Generates data for Keras
     Sequence based data generator. Suitable for building data generator for training and prediction.
     """
-    def __init__(self, files,
+    def __init__(self, files = None,
                  to_fit=True, batch_size=32, dim=(256, 256),
                  n_channels=4, n_timesteps = 6, shuffle=True):
         """Initialization
