@@ -19,7 +19,7 @@ DIR = Path(os.path.relpath(ROOT, Path.cwd()))
 if str(DIR) not in sys.path:
     sys.path.append(str(DIR)) 
 
-from array_tools import merge_classes, normalize_array, rescale_array, aug_array_color, aug_array_morph, rearrange_timeseries, normalize_timeseries
+from array_tools import merge_classes, normalize_array, rescale_array, aug_array_color, aug_array_morph, rearrange_timeseries, normalize_timeseries, make_harmonics
 
 def split_files(files, labels = ['label', 'lu', 'lidar', 's2', 'naip']):
   """Divide list of .npy arrays into separate lists by source data (e.g. NAIP, S2, etc.)
@@ -153,20 +153,6 @@ def sin_cos(t:int, freq:int = 6) -> tuple:
     x = t/freq
     theta = 2*math.pi * x
     return (math.sin(theta), math.cos(theta))
-
-def make_harmonics(times: np.ndarray, timesteps, dims):
-  """Create arrays of sin and cos representations of time
-  Parameters:
-      times (np.ndarray): 1D array of start times
-      timesteps (int): number of annual timesteps
-      dims (tpl): H, W dimensions of output data
-  Returns:
-      np.ndarray: 4D array (B, (dims), 2) with 
-  """
-  xys = [sin_cos(time, timesteps) for time in times] # use the T dimension to get number of intervals
-  # r = deg_to_radians(lat) # convert latitude to radians
-  out = np.stack([np.stack([np.full(dims, x), np.full(dims, y)], axis = -1) for x,y in xys], axis = 0)
-  return out
     
 def normalize_tensor(x, axes=[2], epsilon=1e-8, moments = None, splits = None):
     """
@@ -666,7 +652,7 @@ class LSTMDataGenerator(tf.keras.utils.Sequence):
         self.batch_size = batch_size
         self.dim = dim
         self.n_channels = n_channels
-        self.n_timesteps = n_timesteps+1
+        self.n_timesteps = n_timesteps
         self.shuffle = shuffle
         self.on_epoch_end()
 
@@ -718,6 +704,81 @@ class LSTMDataGenerator(tf.keras.utils.Sequence):
         else:
             print('normalized dims', normalized.shape)
             return normalized
+
+class LSTMAutoencoderGenerator(LSTMDataGenerator):
+    """Generates data for Keras
+    Sequence based data generator. Suitable for building data generator for training and prediction.
+    """
+    def __init__(
+        self, harmonics = True, *args, **kwargs):
+        """Initialization
+
+        :param files: list of all files to use in the generator
+        :param to_fit: True to return X and y, False to return X only
+        :param batch_size: batch size at each iteration
+        :param dim: tuple indicating image dimension
+        :param n_channels: number of image channels
+        :param n_classes: number of output masks
+        :param n_timesteps: number of multi-channel images
+        :param shuffle: True to shuffle label indexes after every epoch
+        """
+        super().__init__(*args, **kwargs)
+        self.add_harmonics = harmonics
+        self.on_epoch_end()
+
+    def __len__(self):
+        return LSTMDataGenerator.__len__(self)
+
+    def on_epoch_end(self):
+        LSTMDataGenerator.on_epoch_end(self)
+
+    def __getitem__(self, index):
+        """Generate one batch of data
+
+        :param index: index of the batch
+        :return: X and y when fitting. X only when predicting
+        """
+        # Generate indexes of the batch
+        indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
+        
+        # Find list of IDs
+        files_temp = [self.files[k] for k in indexes]
+
+        # arrays come from PC in (T, C, H, W) format
+        arrays = [np.load(f) for f in files_temp]
+
+        # creat a single (B, T, C, H, W) array
+        batch = np.stack(arrays, axis = 0)
+
+        # in case our incoming data is of different size than we want, define a trim amount
+        trim = ((batch.shape[3] - self.dim[0])//2, (batch.shape[4] - self.dim[1])//2)
+
+        # n_timesteps + 1 to account for the fact that the sequence includes the next image as target
+        array = batch[:, 0:self.n_timesteps+1,:,trim[0]:self.dim[0]+trim[0],trim[1]:self.dim[1]+trim[1]]
+
+        # rearrange arrays from (B, T, C, H, W) -> (B, T, H, W, C) expected by model
+        reshaped = np.moveaxis(array, source = 2, destination = 4)
+
+        normalized = normalize_timeseries(reshaped, axis = 1)
+        
+        # harmonized = add_harmonic(normalized)
+        if self.add_harmonics:
+            # get start dates for each file
+            starts = [int(Path(f).stem.split('_')[2]) for f in files_temp]
+        else:
+            harmonics = None
+
+        if self.to_fit:
+            feats, y, start = rearrange_timeseries(normalized, self.n_channels)
+            temporal_y = np.flip(feats, axis = 1) # reverse images along time dimension
+            if self.add_harmonics:
+                starts = [x + start - self.n_timesteps for x in starts]
+                harmonics = make_harmonics(starts, self.n_timesteps, self.dim)
+            return [feats, harmonics], [temporal_y, y]
+        else:
+            if self.add_harmonics:
+                harmonics = make_harmonics(starts, self.n_timesteps, self.dim)
+            return [normalized, harmonics]
 
 class HybridDataGenerator(tf.keras.utils.Sequence):
     """Generates data for Keras model with U-Net and LSTM branches

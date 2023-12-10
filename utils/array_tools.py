@@ -6,8 +6,23 @@ Created on Fri Mar 226 10:50:44 2023
 """
 
 import numpy as np
+import math
 from random import shuffle, randint, uniform
 
+def make_harmonics(times: np.ndarray, timesteps, dims):
+    """Create arrays of sin and cos representations of time
+    Parameters:
+        times (np.ndarray): 1D array of start times
+        timesteps (int): number of annual timesteps
+        dims (tpl): H, W dimensions of output data
+    Returns:
+        np.ndarray: 4D array (B, (dims), 2) with 
+    """
+    xys = [sin_cos(time, timesteps) for time in times] # use the T dimension to get number of intervals
+    # r = deg_to_radians(lat) # convert latitude to radians
+    out = np.stack([np.stack([np.full(dims, x), np.full(dims, y)], axis = -1) for x,y in xys], axis = 0)
+    return out
+    
 def merge_classes(cond_array, trans, out_array):
     """Reclassify categorical array values
     Parameters
