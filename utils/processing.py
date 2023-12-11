@@ -443,9 +443,13 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             print('shuffling')
             np.random.shuffle(self.indexes)
 
+    def load_numpy_data(self, files_temp):
+        arrays = [np.load(f) for f in files_temp]
+        return(arrays)
+
     def _get_x_data(self, files_temp):
         # arrays come from PC in (C, H, W) format
-        arrays = [np.load(f) for f in files_temp]
+        arrays = self.load_numpy_data(files_temp)
         array_shapes = [x.shape for x in arrays]
         try:
             assert len(arrays) == self.batch_size
@@ -498,7 +502,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
     def _process_y(self, indexes):
         # get label files for current batch
         lc_files = [self.labelfiles[k] for k in indexes]
-        lc_arrays = [np.load(file) for file in lc_files]
+        lc_arrays = self.load_numpy_data(lc_files)
         lc = np.stack(lc_arrays, axis = 0) #(B, C, H, W)
         int_labels = lc.astype(int)
 
@@ -583,7 +587,8 @@ class SiameseDataGenerator(UNETDataGenerator):
 
     def _process_y(self, indexes):
         # get label files for current batch
-        lc_files = [self.labelfiles[k] for k in indexes]
+        files_temp = [self.labelfiles[k] for k in indexes]
+        lc_files = UNETDataGenerator.load_numpy_data(self, files_temp)
         lc_arrays = [np.squeeze(np.load(file)) for file in lc_files] # make all labels 2D to start
         try:
             assert len(lc_arrays) == self.batch_size
