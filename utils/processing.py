@@ -597,7 +597,7 @@ class SiameseDataGenerator(UNETDataGenerator):
         # get label files for current batch
         files_temp = [self.labelfiles[k] for k in indexes]
         lc_files = UNETDataGenerator.load_numpy_data(self, files_temp)
-        lc_arrays = [np.squeeze(np.load(file)) for file in lc_files] # make all labels 2D to start
+        lc_arrays = [np.squeeze(f) for f in lc_files] # make all labels 2D to start
         try:
             assert len(lc_arrays) == self.batch_size
             lc = np.stack(lc_arrays, axis = 0) #(B, H, W)
