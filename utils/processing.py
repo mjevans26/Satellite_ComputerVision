@@ -9,6 +9,8 @@ import numpy as np
 import math
 import os
 import sys
+import requests
+import io
 from random import shuffle, randint, uniform
 from pathlib import Path
 
@@ -442,16 +444,15 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         if self.shuffle == True:
             print('shuffling')
             np.random.shuffle(self.indexes)
-    
-    @staticmethod  
-    def load_numpy_url(url):
+      
+    def load_numpy_url(self, url):
         response = requests.get(url)
         response.raise_for_status()
         data = np.load(io.BytesIO(response.content))
         return(data)
 
     def load_numpy_data(self, files_temp):
-        arrays = [UNETDataGenerator.load_numpy_url(f) if f.startswith('http') else np.load(f) for f in files_temp]
+        arrays = [self.load_numpy_url(f) if f.startswith('http') else np.load(f) for f in files_temp]
         return(arrays)
 
     def _get_x_data(self, files_temp):
@@ -592,14 +593,10 @@ class SiameseDataGenerator(UNETDataGenerator):
         """
         UNETDataGenerator.on_epoch_end(self)
 
-    def load_numpy_data(self, files_temp):
-        arrays = [np.load(f) for f in files_temp]
-        return(arrays)
-
     def _process_y(self, indexes):
         # get label files for current batch
         files_temp = [self.labelfiles[k] for k in indexes]
-        lc_files = self.load_numpy_data(files_temp)
+        lc_files = UNETDataGenerator.load_numpy_data(files_temp)
         lc_arrays = [np.squeeze(np.load(file)) for file in lc_files] # make all labels 2D to start
         try:
             assert len(lc_arrays) == self.batch_size
