@@ -964,8 +964,10 @@ def retrain_model(model_file, checkpoint, eval_data, metric, weights_file = None
         m = models.load_model(model_file, custom_objects = custom_objects)
     else:
         m = model_file
-        
-    if weights_file:
+    
+    if weights_file.startswith('https'):
+        m = get_blob_weights(m = m, hdf5_url = weights_file)
+    elif weights_file:
         m.load_weights(weights_file)
     # set the initial evaluation metric for saving checkpoints to the previous best value
     evalMetrics = m.evaluate(x = eval_data, verbose = 1)

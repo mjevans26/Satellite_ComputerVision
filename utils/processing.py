@@ -24,6 +24,9 @@ if str(DIR) not in sys.path:
 from array_tools import merge_classes, normalize_array, rescale_array, aug_array_color, aug_array_morph, rearrange_timeseries, normalize_timeseries, make_harmonics
 
 def split_files(files, labels = ['label', 'lu', 'lidar', 's2', 'naip']):
+
+
+def split_files(files, labels = ['label', 'lu', 'naip', 'lidar', 's2']):
   """Divide list of .npy arrays into separate lists by source data (e.g. NAIP, S2, etc.)
 
   Params
@@ -36,16 +39,11 @@ def split_files(files, labels = ['label', 'lu', 'lidar', 's2', 'naip']):
   Return
   ---
   list, list, list: tuple of lists per file subset
-  """
-
-#   tuples = [tuple(f.split('_')[1::4]) for f in basenames]
-  indices = [set([tuple(os.path.basename(f).split('_')[1::4]) for f in files if label in os.path.dirname(f)]) for label in labels]
-
+  """    
+  indices = [set([tuple(Path(f).stem.split('_')[1::4]) for f in files if label in Path(f).parts]) for label in labels]
   intersection = set.intersection(*indices)
-
-  out_files = [[f for f in files if label in os.path.dirname(f) and tuple(os.path.basename(f).split('_')[1::4]) in intersection] for label in labels]
-
-  return tuple(out_files)
+  out_files = [[f for f in files if label in Path(f).parts and tuple(Path(f).stem.split('_')[1::4]) in intersection] for label in labels]
+  return out_files
   
 def calc_ndvi(input):
   """Caclulate NDVI from Sentinel-2 data
