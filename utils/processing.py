@@ -23,9 +23,6 @@ if str(DIR) not in sys.path:
 
 from array_tools import merge_classes, normalize_array, rescale_array, aug_array_color, aug_array_morph, rearrange_timeseries, normalize_timeseries, make_harmonics
 
-def split_files(files, labels = ['label', 'lu', 'lidar', 's2', 'naip']):
-
-
 def split_files(files, labels = ['label', 'lu', 'naip', 'lidar', 's2']):
   """Divide list of .npy arrays into separate lists by source data (e.g. NAIP, S2, etc.)
 
