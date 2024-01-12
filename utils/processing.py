@@ -542,17 +542,21 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         # Generate indexes of the batch
         indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
 
+        datasets = []
+
         if self.s2files:
             s2Data = self._get_s2_data(indexes)
+            datasets.append(s2Data)
 
         if self.naipfiles:
             naipData = self._get_naip_data(indexes)
+            datasets.append(naipData)
 
         if self.lidarfiles:
             lidarData = self._get_lidar_data(indexes)
-            xData = np.concatenate([naipData, lidarData], axis = -1)
-        else:
-            xData = naipData
+            datasets.append(lidarData)
+        
+        xData = np.concatenate(datasets, axis = -1)
 
         labels = self._process_y(indexes)
         
