@@ -37,9 +37,9 @@ def split_files(files, labels = ['label', 'lu', 'naip', 'lidar', 's2']):
   ---
   list, list, list: tuple of lists per file subset
   """    
-  indices = [set([tuple(Path(f).stem.split('_')[1::4]) for f in files if label in Path(f).parts]) for label in labels]
+  indices = [set([str(Path(f).stem).replace(label, '') for f in files if label in Path(f).parts]) for label in labels]
   intersection = set.intersection(*indices)
-  out_files = [[f for f in files if label in Path(f).parts and tuple(Path(f).stem.split('_')[1::4]) in intersection] for label in labels]
+  out_files = [[f for f in files if label in Path(f).parts and str(Path(f).stem).replace(label, '') in intersection] for label in labels]
   return out_files
   
 def calc_ndvi(input):
