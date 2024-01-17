@@ -509,19 +509,20 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         lc = np.stack(lc_arrays, axis = 0) #(B, C, H, W)
         int_labels = lc.astype(int)
 
-        # reduce the number of classes 
-        merged_labels = merge_classes(cond_array = int_labels, trans = self.trans, out_array = int_labels)
+        # reduce the number of classes
+        if self.trans:
+            int_labels = merge_classes(cond_array = int_labels, trans = self.trans, out_array = int_labels)
         
         if self.lufiles:
             lu_files = [self.lufiles[k] for k in indexes]
             lu_arrays = [np.load(file) for file in lu_files]
             lu = np.stack(lu_arrays, axis = 0) #(B, C, H, W)
-            merged_labels = merge_classes(cond_array = lu, trans = [(82,9), (84,10)], out_array = merged_labels)
+            int_labels = merge_classes(cond_array = lu, trans = [(82,9), (84,10)], out_array = int_labels)
 
         # If necessary, trim data to (-1, dims[0], dims[1])
-        in_shape = merged_labels.shape
+        in_shape = int_labels.shape
         trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2) 
-        array = merged_labels[:,:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
+        array = int_labels[:,:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
 
         # shift range of categorical labels from [1, n_classes] to [0, n_classes]
         zeroed = array - 1
