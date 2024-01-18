@@ -23,7 +23,7 @@ if str(DIR) not in sys.path:
 
 from array_tools import merge_classes, normalize_array, rescale_array, aug_array_color, aug_array_morph, rearrange_timeseries, normalize_timeseries, make_harmonics
 
-def split_files(files, labels = ['label', 'lu', 'naip', 'lidar', 's2']):
+def split_files(files, labels = ['label', 'lu', 'naip', 'lidar', 's2'], delim = '_', parts = slice(3,5)):
   """Divide list of .npy arrays into separate lists by source data (e.g. NAIP, S2, etc.)
 
   Params
@@ -37,10 +37,15 @@ def split_files(files, labels = ['label', 'lu', 'naip', 'lidar', 's2']):
   ---
   list, list, list: tuple of lists per file subset
   """    
-  indices = [set([str(Path(f).stem).replace(label, '') for f in files if label in Path(f).parts]) for label in labels]
+  def get_file_id(f, parts):
+    stem = str(Path(f).stem)
+    splits = stem.split('_')
+    ids = splits[parts]
+    return tuple(ids)
+
+  indices = [set([get_file_id(f, parts) for f in files if label in Path(f).parts]) for label in labels]
   intersection = set.intersection(*indices)
-  out_files = [[f for f in files if label in Path(f).parts and str(Path(f).stem).replace(label, '') in intersection] for label in labels]
-  return out_files
+  out_files = [[f for f in files if label in Path(f).parts and get_file_id(f, parts) in intersection] for label in labels]
   
 def calc_ndvi(input):
   """Caclulate NDVI from Sentinel-2 data
@@ -455,9 +460,9 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         arrays = self.load_numpy_data(files_temp)
         array_shapes = [x.shape for x in arrays]
         try:
-            assert len(arrays) == self.batch_size
+            assert len(arrays) == self.batch_size, 'not enough files for batch'
             # make sure everything is 3D
-            assert all([len(x) == 3 for x in array_shapes])
+            assert all([len(x) == 3 for x in array_shapes]), 'all arrays in batch not 3D'
             # ensure all arrays are channels first
             arrays = [np.moveaxis(x, source = -1, destination = 0) if x.shape[-1] < x.shape[0] else x for x in arrays]
             # creat a single (B, C, H, W) array per batch
@@ -470,7 +475,8 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
             reshaped = np.moveaxis(array, source = 1, destination = 3)
             return reshaped
-        except AssertionError:
+        except AssertionError as msg:
+            print(msg)
             return None
     
     def _get_naip_data(self, indexes):
