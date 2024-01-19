@@ -361,7 +361,7 @@ def rasterio_to_img(array, out_path, nbands = 3, ext = None):
     print('writing image to', out_file)
     imsave(out_file, t[:,:,:nbands], vmin = 0, vmax = 255)
 
-def numpy_to_raster(arr: np.ndarray, mixer: dict, out_file: str):
+def numpy_to_raster(arr: np.ndarray, mixer: dict, out_file: str, dtype:str):
     """
     Params
     ---
@@ -371,6 +371,8 @@ def numpy_to_raster(arr: np.ndarray, mixer: dict, out_file: str):
         dictionary containing image dimension and spatial reference metadata required by rasterio.write
     out_file: str
         file path to destination raster file
+    dtype: str
+        output dtype accepted by rasterio.write (e.g., 'uint16', 'int32', 'float32', 'float64')
     
     Return
     ---
@@ -382,7 +384,7 @@ def numpy_to_raster(arr: np.ndarray, mixer: dict, out_file: str):
         'width':mixer['cols'],
         'height':mixer['rows'],
         'count':C,
-        'dtype':arr.dtype,
+        'dtype':dtype,
         'transform':rio.Affine(*mixer['transform'][0:6]),
         'crs':mixer['crs'],
         'nodata':255
