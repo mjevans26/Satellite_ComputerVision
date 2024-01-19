@@ -378,7 +378,7 @@ def numpy_to_raster(arr: np.ndarray, mixer: dict, out_file: str, dtype:str):
     ---
     None: writes raster data to destination file
     """
-    C = arr.shape[-1]
+    C = arr.shape[0]
     meta = {
         'driver':'GTiff',
         'width':mixer['cols'],
