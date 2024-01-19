@@ -39,14 +39,15 @@ def split_files(files, labels = ['label', 'lu', 'naip', 'lidar', 's2'], delim = 
   """    
   def get_file_id(f, parts):
     stem = str(Path(f).stem)
-    splits = stem.split('_')
+    splits = stem.split(delim)
     ids = splits[parts]
     return tuple(ids)
 
   indices = [set([get_file_id(f, parts) for f in files if label in Path(f).parts]) for label in labels]
   intersection = set.intersection(*indices)
   out_files = [[f for f in files if label in Path(f).parts and get_file_id(f, parts) in intersection] for label in labels]
-  
+  return out_files
+
 def calc_ndvi(input):
   """Caclulate NDVI from Sentinel-2 data
   Parameters:
@@ -460,7 +461,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         arrays = self.load_numpy_data(files_temp)
         array_shapes = [x.shape for x in arrays]
         try:
-            assert len(arrays) == self.batch_size, 'not enough files for batch'
+            assert len(arrays) == self.batch_size, f'{len(arrays)} arrays, not enough for batch'
             # make sure everything is 3D
             assert all([len(x) == 3 for x in array_shapes]), 'all arrays in batch not 3D'
             # ensure all arrays are channels first
