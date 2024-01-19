@@ -379,10 +379,10 @@ def numpy_to_raster(arr: np.ndarray, mixer: dict, out_file: str):
     C = arr.shape[-1]
     meta = {
         'driver':'GTiff',
-        'width':mixer['cols']
-        'height':mixer['rows']
-        'count':C
-        'dtype':arr.dtype
+        'width':mixer['cols'],
+        'height':mixer['rows'],
+        'count':C,
+        'dtype':arr.dtype,
         'transform':rio.Affine(*mixer['transform'][0:6]),
         'crs':mixer['crs'],
         'nodata':255
