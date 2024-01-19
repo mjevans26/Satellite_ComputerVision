@@ -385,7 +385,7 @@ def numpy_to_raster(arr: np.ndarray, mixer: dict, out_file: str):
         'dtype':arr.dtype
         'transform':rio.Affine(*mixer['transform'][0:6]),
         'crs':mixer['crs'],
-        'nodata':255)
+        'nodata':255
     }
     band_list = list(range(1,C+1))
     with rio.open(out_file, mode = 'w', **meta) as src:
