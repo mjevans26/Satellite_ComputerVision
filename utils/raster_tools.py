@@ -360,3 +360,33 @@ def rasterio_to_img(array, out_path, nbands = 3, ext = None):
         out_file = out_path
     print('writing image to', out_file)
     imsave(out_file, t[:,:,:nbands], vmin = 0, vmax = 255)
+
+def numpy_to_raster(arr: np.ndarray, mixer: dict, out_file: str):
+    """
+    Params
+    ---
+    arr: np.ndarray
+        input (H,W,C) array to be converted to raster
+    mixer_file: dict
+        dictionary containing image dimension and spatial reference metadata required by rasterio.write
+    out_file: str
+        file path to destination raster file
+    
+    Return
+    ---
+    None: writes raster data to destination file
+    """
+    C = arr.shape[-1]
+    meta = {
+        'driver':'GTiff',
+        'width':mixer['cols']
+        'height':mixer['rows']
+        'count':C
+        'dtype':arr.dtype
+        'transform':rio.Affine(*mixer['transform'][0:6]),
+        'crs':mixer['crs'],
+        'nodata':255)
+    }
+    band_list = list(range(1,C+1))
+    with rio.open(out_file, mode = 'w', **meta) as src:
+        src.write(arr, band_list)
