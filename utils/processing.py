@@ -516,7 +516,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         lc = np.stack(lc_arrays, axis = 0) #(B, C, H, W)
         int_labels = lc.astype(int)
 
-        # reduce the number of classes
+        # optionally reduce the number of classes
         if self.trans:
             int_labels = merge_classes(cond_array = int_labels, trans = self.trans, out_array = int_labels)
         
@@ -874,6 +874,16 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
        for item in (self[i] for i in range(len(self))):
             yield item 
     
+    def load_numpy_url(self, url):
+        response = requests.get(url)
+        response.raise_for_status()
+        data = np.load(io.BytesIO(response.content))
+        return(data)
+
+    def load_numpy_data(self, files_temp):
+        arrays = [self.load_numpy_url(f) if f.startswith('http') else np.load(f) for f in files_temp]
+        return(arrays)
+
     def _get_s2_data(self, indexes):
 
         files_temp = [self.s2files[k] for k in indexes]
@@ -953,8 +963,8 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
             lc = np.stack(lc_arrays, axis = 0) #(B, C, H, W)
             int_labels = lc.astype(int)
 
-        # reduce the number of classes 
-            merged_labels = merge_classes(cond_array = int_labels, trans = self.trans, out_array = int_labels)
+        if self.trans:
+            int_labels = merge_classes(cond_array = int_labels, trans = self.trans, out_array = int_labels)
 
             if self.lufiles:
                 lu_files = [self.lufiles[k] for k in indexes]
@@ -963,16 +973,14 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
                     assert len(lu_arrays) == self.batch_size
                     assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lu_arrays])                
                     lu = np.stack(lu_arrays, axis = 0) #(B, C, H, W)
-                    y = merge_classes(cond_array = lu, trans = [(82,9), (84,10)], out_array = merged_labels)
+                    int_labels = merge_classes(cond_array = lu, trans = [(82,9), (84,10)], out_array = int_labels)
                 except AssertionError:
                     return None
-            else:
-                y = merged_labels
 
             # If necessary, trim data to (-1, dims[0], dims[1])
-            in_shape = y.shape
+            in_shape = int_labels.shape
             trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2) 
-            array = y[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
+            array = int_labels[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
 
             # shift range of categorical labels from [1, n_classes] to [0, n_classes]
             zeroed = array - 1
@@ -994,18 +1002,25 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         
         indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
 
-        lstmData = self._get_s2_data(indexes)
+        lstmDatasets = []
+        unetDatasets = []
 
-        naipData = self._get_naip_data(indexes)
+        if self.s2files:
+            s2Data = self._get_s2_data(indexes)
+            lstmDatasets.append(s2Data)
 
-        lidarData = self._get_lidar_data(indexes)
+        if self.naipfiles:
+            naipData = self._get_naip_data(indexes)
+            unetDatasets.append(naipData)
+        
+        if self.lidarfiles:
+            lidarData = self._get_lidar_data(indexes)
+            unetDatasets.append(lidarData)
 
         labels = self._process_y(indexes)
 
-        if type(lidarData) == np.ndarray:
-            unetData = np.concatenate([naipData, lidarData], axis = -1)
-        else:
-            unetData = naipData
+        unetData = np.concatenate(unetDatasets, axis = -1)
+        lstmData = np.concatenate(lstmDatasets, axis = -1)
 
         feats = [unetData, lstmData]
         if any([type(dat) == type(None) for dat in feats]):
