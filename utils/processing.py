@@ -963,8 +963,8 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
             lc = np.stack(lc_arrays, axis = 0) #(B, C, H, W)
             int_labels = lc.astype(int)
 
-        if self.trans:
-            int_labels = merge_classes(cond_array = int_labels, trans = self.trans, out_array = int_labels)
+            if self.trans:
+                int_labels = merge_classes(cond_array = int_labels, trans = self.trans, out_array = int_labels)
 
             if self.lufiles:
                 lu_files = [self.lufiles[k] for k in indexes]
