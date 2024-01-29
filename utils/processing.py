@@ -445,7 +445,8 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         if self.shuffle == True:
             print('shuffling')
             np.random.shuffle(self.indexes)
-      
+    
+    @staticmethod
     def load_numpy_url(url):
         response = requests.get(url)
         response.raise_for_status()
@@ -453,7 +454,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         return(data)
 
     def load_numpy_data(self, files_temp):
-        arrays = [self.load_numpy_url(f) if f.startswith('http') else np.load(f) for f in files_temp]
+        arrays = [UNETDataGenerator.load_numpy_url(f) if f.startswith('http') else np.load(f) for f in files_temp]
         return(arrays)
 
     def _get_x_data(self, files_temp):
