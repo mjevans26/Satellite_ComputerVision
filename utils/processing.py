@@ -875,21 +875,22 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
        for item in (self[i] for i in range(len(self))):
             yield item 
     
-    def load_numpy_url(self, url):
+    @staticmethod
+    def load_numpy_url(url):
         response = requests.get(url)
         response.raise_for_status()
         data = np.load(io.BytesIO(response.content))
         return(data)
 
     def load_numpy_data(self, files_temp):
-        arrays = [self.load_numpy_url(f) if f.startswith('http') else np.load(f) for f in files_temp]
+        arrays = [HybridDataGenerator.load_numpy_url(f) if f.startswith('http') else np.load(f) for f in files_temp]
         return(arrays)
 
     def _get_s2_data(self, indexes):
-
+        
         files_temp = [self.s2files[k] for k in indexes]
         # arrays come from PC in (T, C, H, W) format
-        arrays = [np.load(f) for f in files_temp]
+        arrays = self.load_numpy_data(files_temp)
 
         try:
             assert len(arrays) > 0
@@ -914,7 +915,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         # Find list of IDs
         files_temp = [self.naipfiles[k] for k in indexes]
         # arrays come from PC in (C, H, W) format
-        arrays = [np.load(f) for f in files_temp]
+        arrays = self.load_numpy_data(files_temp)
 
         try: 
             assert len(arrays) > 0
@@ -938,7 +939,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         if self.lidarfiles:
 
             files_temp = [self.lidarfiles[k] for k in indexes]
-            arrays = [np.load(f) for f in files_temp]
+            arrays = self.load_numpy_data(files_temp)
             try:
                 assert len(arrays) == self.batch_size
                 assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in arrays])
