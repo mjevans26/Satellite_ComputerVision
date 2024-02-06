@@ -817,7 +817,7 @@ def get_hybrid_model(unet_dim, lstm_dim, n_classes, filters = [32, 64, 128, 256,
     # lstm_resized = layers.Resizing(unet_dim[0], unet_dim[1], 'nearest')(lstm_dense) # resizing raw lstm was blowing memory
     lstm_resized = tf.image.resize(lstm_dense, [unet_dim[0], unet_dim[1]], method = 'nearest')
     concat_layer = layers.concatenate([lstm_resized, unet_dense], axis=-1)
-    concat_dense = layers.Conv2D(n_classes, [1,1], activation = 'softmax', data_format = 'channels_last', padding = 'same')(concat_layer)
+    concat_dense = layers.Conv2D(n_classes, [1,1], activation = 'softmax', data_format = 'channels_last', padding = 'same', name = 'probabilities')(concat_layer)
     model = models.Model(inputs = [unet_input, lstm_input], outputs = concat_dense)
 
     if compile_model:
