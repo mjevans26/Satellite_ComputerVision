@@ -971,11 +971,11 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
             return rescaled
         else:
             return s1
-        
+
     def _process_y(self, indexes):
         # get label files for current batch
         lc_files = [self.labelfiles[k] for k in indexes]
-        lc_arrays = [np.load(file) for file in lc_files]
+        lc_arrays = self.load_numpy_data(lc_files)
         try:
             assert len(lc_arrays) == self.batch_size
             assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lc_arrays])
@@ -987,7 +987,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
 
             if self.lufiles:
                 lu_files = [self.lufiles[k] for k in indexes]
-                lu_arrays = [np.load(file) for file in lu_files]
+                lu_arrays = self.load_numpy_data(lu_files)
                 try:
                     assert len(lu_arrays) == self.batch_size
                     assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lu_arrays])                
