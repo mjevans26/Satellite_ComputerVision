@@ -340,10 +340,10 @@ def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors =
         encoder_name = f'encoder{i}'
         encoder_pool_name = f'encoder_pool{i}'
         if i == 0:
-            encoder = encoder_block(filt, (factor, factor))
+            encoder = encoder_block(filt, (factor, factor), name = encoder_name)
             encoder_pool, encoded = encoder(input_tensor)
         else:
-            encoder = encoder_block(filt, (factor, factor))
+            encoder = encoder_block(filt, (factor, factor), name = encoder_name)
             encoder_pool, encoded = encoder(encoder_pool)
         net[encoder_name] = encoded
         net[encoder_pool_name] = encoder_pool
@@ -691,7 +691,7 @@ def build_lstm_layers(input_tensor, return_sequences = False):
 
     return activated2
 
-def get_lstm_model(n_channels, n_time, optim, metrics, loss, activation = layers.ReLU(max_value = 2.0)):
+def get_lstm_model(n_channels, n_classes, n_time, optim, metrics, loss, activation = layers.ReLU(max_value = 2.0)):
     """ Build and complie an LSTM model in Keras
 
     Params
