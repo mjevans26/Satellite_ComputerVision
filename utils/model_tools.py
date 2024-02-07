@@ -787,7 +787,7 @@ def get_lstm_autoencoder(
     #     )
     return model
 
-def get_hybrid_model(unet_dim, lstm_dim, n_classes, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2], compile_model = False, optim = None, metrics = None, loss = None):
+def get_hybrid_model(unet_dim, lstm_dim, n_classes, filters = [32, 64, 128, 256], factors = [3,2,2,2], compile_model = False, optim = None, metrics = None, loss = None):
     """Build and compile a hybrid U-Net/LSTM model in Keras
 
     Params
