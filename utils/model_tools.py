@@ -340,10 +340,10 @@ def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors =
         encoder_name = f'encoder{i}'
         encoder_pool_name = f'encoder_pool{i}'
         if i == 0:
-            encoder = encoder_block(filt, (factor, factor))
+            encoder = encoder_block(filt, (factor, factor), name = f'encoder_{i}')
             encoder_pool, encoded = encoder(input_tensor)
         else:
-            encoder = encoder_block(filt, (factor, factor))
+            encoder = encoder_block(filt, (factor, factor), name = f'encoder_{i}')
             encoder_pool, encoded = encoder(encoder_pool)
         net[encoder_name] = encoded
         net[encoder_pool_name] = encoder_pool
