@@ -332,6 +332,7 @@ def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors =
     ---
     tf.keras.layer
     """
+    print('build unet filters:', filters)
     assert len(filters) == len(factors), 'number of filters and factors must be equal'
     levels = len(filters)
     net = {}
@@ -809,6 +810,7 @@ def get_hybrid_model(unet_dim, lstm_dim, n_classes, filters = [32, 64, 128, 256]
     keras.models.Model
     """
     unet_input = layers.Input(shape=(None, None, unet_dim[-1]))
+    print('hybrid model filters:', filters)
     unet_output = build_unet_layers(unet_input, filters = filters, factors = factors)
     unet_dense = layers.Conv2D(n_classes, [1,1], activation = 'relu', data_format = 'channels_last', padding = 'same')(unet_output)
     lstm_input = layers.Input(shape=(lstm_dim[0], None, None, lstm_dim[-1]))
