@@ -516,7 +516,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         files_temp = [self.hagfiles[k] for k in indexes]
         hag = self._get_x_data(files_temp)
         if type(hag) == np.ndarray:
-            rescaled = lidar/100
+            rescaled = hag/100
             return rescaled
         else:
             return hag    
