@@ -392,7 +392,8 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
     """Generates data for Keras
     Sequence based data generator. Suitable for building data generator for training and prediction.
     """
-    def __init__(self, labelfiles = None, s2files = None, naipfiles = None, lidarfiles = None, lufiles = None,
+    def __init__(self, labelfiles = None, s2files = None, naipfiles = None, 
+                 hagfiles = None, lidarfiles = None, lufiles = None,
                  to_fit=True, batch_size=32, dim=(256, 256),
                  n_channels=4, n_classes = 8, shuffle=True,
                  splits = None, moments = None, translations = None):
@@ -409,6 +410,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         """
         self.s2files = s2files
         self.naipfiles = naipfiles
+        self.hagfiles = hagfiles
         self.lidarfiles = lidarfiles
         self.labelfiles = labelfiles
         self.lufiles = lufiles
