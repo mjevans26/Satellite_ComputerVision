@@ -510,7 +510,16 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             rescaled = lidar/100
             return rescaled  
         else:
-            return lidar      
+            return lidar 
+
+    def _get_hag_data(self, indexes):
+        files_temp = [self.hagfiles[k] for k in indexes]
+        hag = self._get_x_data(files_temp)
+        if type(hag) == np.ndarray:
+            rescaled = lidar/100
+            return rescaled
+        else:
+            return hag    
 
     def _process_y(self, indexes):
         # get label files for current batch
@@ -559,6 +568,10 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         if self.naipfiles:
             naipData = self._get_naip_data(indexes)
             datasets.append(naipData)
+
+        if self.hagfiles:
+            hagData = self._get_hag_data(indexes)
+            datasets.append(hagData)
 
         if self.lidarfiles:
             lidarData = self._get_lidar_data(indexes)
