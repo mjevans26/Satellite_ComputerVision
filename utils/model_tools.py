@@ -839,12 +839,12 @@ def build_acnn_layers(input_tensor, depth, nfilters, nclasses):
     features_add = layers.ReLU()(norm)
     for layer in range(1, depth):
         feats = layers.Conv2D(filters = nfilters, kernel_size = (3,3), padding = 'same', activation = None, name = f'Conv2D_{layer}_1')(feats)
-        norm = layers.BatchNormalization()(feats)
-        features_add = layers.ReLU()(norm + features_add)
+        norm = layers.BatchNormalization(name = f'BN_{layer}_1')(feats)
+        features_add = layers.ReLU(name = f'relu_{layer}_1')(norm + features_add)
         
         feats = layers.Conv2D(filters = nfilters, kernel_size = (3,3), dilation_rate = 3, padding = 'same', activation = None, name = f'Conv2D_{layer}_2')(features_add)
-        norm = layers.BatchNormalization()(feats)
-        relu = layers.ReLU()(norm)
+        norm = layers.BatchNormalization(name = f'BN_{layer}_2')(feats)
+        relu = layers.ReLU(name = f'relu_{layer}_2')(norm)
 
     logits = layers.Conv2D(filters = nclasses, kernel_size = (1,1), padding = 'same', activation = 'softmax', name = 'probabilities')(relu)
     return logits
@@ -860,6 +860,10 @@ def get_acnn_model(nclasses, nfilters, nchannels, depth):
     # )
     return model
 
+def get_hierarchical_acnn_model(nclasses, nfilters, nchannels, depth):
+    acnn_input = layers.Input((None, None, nchannels))
+    logits = build_acnn_layers(acnn_input, depth = depth, nfilters = nfilters, nclasses = nclasses)
+    model = models.Model(inputs = acnn_input, outputs = logits)
 ### MODEL EVALUATION TOOLS ###
 # def make_confusion_matrix_data(tpl, model, multiclass = False):
 #     predicted = model.predict(tpl[0], verbose = 1)
