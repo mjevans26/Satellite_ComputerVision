@@ -835,8 +835,8 @@ def build_acnn_layers(input_tensor, depth, nfilters, nclasses):
     https://github.com/XiaoYunZhou27/ACNN/blob/master/acnn.py
     """
     feats = layers.Conv2D(filters = nfilters, kernel_size = (3,3), padding = 'same', activation = None, name = f'Conv2D_0_1')(input_tensor)
-    norm = layers.BatchNormalization()(feats)
-    features_add = layers.ReLU()(norm)
+    norm = layers.BatchNormalization(name = 'BN_0')(feats)
+    features_add = layers.ReLU(name = 'relu_0')(norm)
     for layer in range(1, depth):
         feats = layers.Conv2D(filters = nfilters, kernel_size = (3,3), padding = 'same', activation = None, name = f'Conv2D_{layer}_1')(feats)
         norm = layers.BatchNormalization(name = f'BN_{layer}_1')(feats)
