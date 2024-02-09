@@ -121,7 +121,7 @@ def get_naip_stac(aoi, dates):
     naip = stac_vrt.build_vrt(filtered, block_width=512, block_height=512, data_type="Byte")
     return naip
 
-def get_lidar_stac(aoi, dates, crs = None, resolution = None):
+def get_hag_stac(aoi, dates, crs = None, resolution = None):
     catalog = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
     search = catalog.search(
         intersects = aoi,
@@ -132,32 +132,32 @@ def get_lidar_stac(aoi, dates, crs = None, resolution = None):
     items = recursive_api_try(search)
     # items is a pystac ItemCollection
     items2 = items.to_dict()
-    lidar = items2['features']
+    hag = items2['features']
 
-    # lidarUrl = lidar[0]['assets']['data']['href']
-    lidarProperties = lidar[0]['properties']
-    lidarCrs = lidarProperties['proj:projjson']['components'][0]['id']['code']
-    lidarTransform = lidarProperties['proj:transform']
+    # hagUrl = hag[0]['assets']['data']['href']
+    hagProperties = hag[0]['properties']
+    hagCrs = hagProperties['proj:projjson']['components'][0]['id']['code']
+    hagTransform = hagProperties['proj:transform']
     if resolution:
-        lidarRes = resolution
+        hagRes = resolution
     else:
-        lidarRes = lidarTransform[0]
+        hagRes = hagTransform[0]
 
-    # lidarSide = 360//lidarRes
-    # lidarZoom = round(600/lidarSide, 4)
+    # hagSide = 360//hagRes
+    # hagZoom = round(600/hagSide, 4)
 
-    # lidarCrs = [asset['properties']['proj:projjson']['components'][0]['id']['code'] for asset in lidar]
-    # print('LiDAR CRS', lidarCrs[0])
-    lidarStac = stackstac.stack(
-        lidar,
-        epsg = lidarCrs,
-        resolution = lidarRes,
+    # hagCrs = [asset['properties']['proj:projjson']['components'][0]['id']['code'] for asset in hag]
+    # print('hag CRS', hagCrs[0])
+    hagStac = stackstac.stack(
+        hag,
+        epsg = hagCrs,
+        resolution = hagRes,
         sortby_date = False,
         assets = ['data'])
 
-    lidarMedian = lidarStac.median(dim = 'time') 
-    projected = lidarMedian.rio.set_crs(lidarCrs)
-    # reprojected = projected.rio.reproject(lidarCrs)
+    hagMedian = hagStac.median(dim = 'time') 
+    projected = hagMedian.rio.set_crs(hagCrs)
+    # reprojected = projected.rio.reproject(hagCrs)
 
     return projected
 
