@@ -22,7 +22,7 @@ import tempfile
 
 ## LOSS FXNS
 
-def weighted_categorical_crossentropy(target, output, weights, axis=-1):
+def impweighted_categorical_crossentropy(target, output, weights, axis=-1):
     target = tf.convert_to_tensor(target)
     output = tf.convert_to_tensor(output)
     target.shape.assert_is_compatible_with(output.shape)
