@@ -860,10 +860,6 @@ def get_acnn_model(nclasses, nfilters, nchannels, depth):
     # )
     return model
 
-def get_hierarchical_acnn_model(nclasses, nfilters, nchannels, depth):
-    acnn_input = layers.Input((None, None, nchannels))
-    logits = build_acnn_layers(acnn_input, depth = depth, nfilters = nfilters, nclasses = nclasses)
-    model = models.Model(inputs = acnn_input, outputs = logits)
 ### MODEL EVALUATION TOOLS ###
 # def make_confusion_matrix_data(tpl, model, multiclass = False):
 #     predicted = model.predict(tpl[0], verbose = 1)
