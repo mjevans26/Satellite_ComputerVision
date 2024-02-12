@@ -228,7 +228,53 @@ def get_s2_stac(dates, aoi):
     s2projected = s2Stac.rio.set_crs(s2crs)
     clipped = s2projected.rio.clip(geometries = [aoi], crs = 4326)
     return clipped
+
+def get_ssurgo_stac(aoi)-> np.ndarray:
+    """Sample ssurgo data in raster format
     
+    Parameters
+    ---
+    catalog: pystac_client.client.Client
+        planetary computer catalog
+    aoi: shapely.geometry.Polygon
+        geometry to filter ssurgo data via intersection
+    point: geopandas.geoseries.GeoSeries
+        point at which to sample data
+    window_size: int
+        size in METERS of each side of the chip to be sampled
+    
+    Returns
+    ---
+    np.ndarray: 3-dimensional raster (window_size, window_size, 4) containing ssurgo data
+    """
+    # connect to the PC STAC catalog
+    catalog = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
+
+    # get the gnatsco raster, which has 'mukey' values per pixel
+    search = catalog.search(
+        collections=["gnatsgo-rasters"],
+        intersects=aoi
+    )
+
+    surgoitems = [planetary_computer.sign(item).to_dict() for item in list(search.items())]
+    surgo = surgoitems[0]
+
+    surgowkt = surgo['properties']['proj:wkt2']
+    surgoCrs = CRS.from_wkt(surgowkt)
+
+    # surgoepsg = surgo['properties']['proj:epsg']
+    surgoStac = stackstac.stack(
+            surgoitems,
+            epsg = surgoCrs,
+            assets=['mukey'])
+
+    surgoTransform = surgoStac.attrs['transform']
+    surgores = 10 #surgoTransform[0] TODO: COnfirm ssurgo is always 10 m resolution
+    print('resolution', surgores)
+    
+    temporal = surgoStac.median(dim = 'time')
+    return temporal, surgoCrs
+
 def get_pc_imagery(aoi, dates, crs):
     """Get S2 imagery from Planetary Computer. REQUIRES a valid API token be added to the os environment
     Args:
