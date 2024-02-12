@@ -821,9 +821,10 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
     Sequence based data generator. Suitable for building data generator for training and prediction.
     """
 
-    def __init__(self, s2files, s1files, naipfiles, labelfiles, lufiles, hagfiles = None, n_classes = 8,
+    def __init__(self, s2files, s1files, naipfiles, labelfiles, lufiles, lidarfiles = None, hagfiles = None, n_classes = 8,
                  to_fit=True, batch_size=32, unet_dim=(320, 320, 4),
-                 transitions = [(12,3), (11,3), (10,3), (9,8), (255, 0)],
+                 lc_transitions = [(12,3), (11,3), (10,3), (9,8), (255, 0)],
+                 lu_transitions = [(82,9), (84,10)],
                  lstm_dim = (6, 32, 32, 6), shuffle=True):
         """Class Initialization
 
@@ -858,9 +859,11 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         self.s1files = s1files
         self.naipfiles = naipfiles
         self.hagfiles = hagfiles
+        self.lidarfiles = lidarfiles
         self.labelfiles = labelfiles
         self.lufiles = lufiles
-        self.trans = transitions
+        self.lc_trans = lc_transitions
+        self.lu_trans = lu_transitions
         self.to_fit = to_fit
         self.batch_size = batch_size
         self.unet_dim = unet_dim
@@ -944,7 +947,16 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
             rescaled = hag/100
             return rescaled  
         else:
-            return hag      
+            return hag 
+
+    def _get_lidar_data(self, indexes):
+        files_temp = [self.lidarfiles[k] for k in indexes]
+        lidar = self._get_unet_data(files_temp)
+        if type(lidar) == np.ndarray:
+            rescaled = lidar/100
+            return rescaled  
+        else:
+            return lidar      
 
     def _get_lstm_data(self, files_temp):
         arrays = self.load_numpy_data(files_temp)
@@ -997,8 +1009,8 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
             lc = np.stack(lc_arrays, axis = 0) #(B, C, H, W)
             int_labels = lc.astype(int)
 
-            if self.trans:
-                int_labels = merge_classes(cond_array = int_labels, trans = self.trans, out_array = int_labels)
+            if self.lc_trans:
+                int_labels = merge_classes(cond_array = int_labels, trans = self.lc_trans, out_array = int_labels)
 
             if self.lufiles:
                 lu_files = [self.lufiles[k] for k in indexes]
@@ -1007,7 +1019,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
                     assert len(lu_arrays) == self.batch_size
                     assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lu_arrays])                
                     lu = np.stack(lu_arrays, axis = 0) #(B, C, H, W)
-                    int_labels = merge_classes(cond_array = lu, trans = [(82,9), (84,10)], out_array = int_labels)
+                    int_labels = merge_classes(cond_array = lu, trans = self.lu_trans, out_array = int_labels)
                 except AssertionError:
                     return None
 
@@ -1052,17 +1064,23 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
             unetDatasets.append(naipData)
         
         if self.hagfiles:
+            hagData = self._get_hag_data(indexes)
+            unetDatasets.append(hagData)
+        
+        if self.lidarfiles:
             lidarData = self._get_lidar_data(indexes)
             unetDatasets.append(lidarData)
 
         labels = self._process_y(indexes)
 
-        unetData = np.concatenate(unetDatasets, axis = -1)
-        lstmData = np.concatenate(lstmDatasets, axis = -1)
-
-        feats = [unetData, lstmData]
-        if any([type(dat) == type(None) for dat in feats]):
+        if any([type(dat) == type(None) for dat in unetDatasets|lstmDatasets]):
             return self.__getitem__(randint(0, len(self.indexes) - self.batch_size))
+
+        else:
+            unetData = np.concatenate(unetDatasets, axis = -1)
+            lstmData = np.concatenate(lstmDatasets, axis = -1)
+
+            feats = [unetData, lstmData]
 
         if self.to_fit:
             if type(labels) == type(None):
