@@ -1073,7 +1073,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
 
         labels = self._process_y(indexes)
 
-        if any([type(dat) == type(None) for dat in unetDatasets|lstmDatasets]):
+        if any([type(dat) == type(None) for dat in unetDatasets+lstmDatasets]):
             return self.__getitem__(randint(0, len(self.indexes) - self.batch_size))
 
         else:
