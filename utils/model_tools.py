@@ -849,6 +849,46 @@ def build_acnn_layers(input_tensor, depth, nfilters, nclasses):
     logits = layers.Conv2D(filters = nclasses, kernel_size = (1,1), padding = 'same', activation = 'softmax', name = 'probabilities')(relu)
     return logits
 
+def build_acnn_layers2(feature_in, n_blocks=16, kernel_size=3, feature_num=16):
+    """Create the model layers for atrous convolutional nueral network
+    
+    Params
+    ---
+    feature_in: np.ndarray or tf.tensor
+        input tensor
+    n_blocks: int
+        number of sequential conv/a-conv blocks
+    kernel_size: int
+        size of convolutional kernels 
+    feature_num: int
+        number of convolutional filters per block
+        
+    Returns
+    ---
+    tensorflow.keras.layers.Layer
+    """
+    for layer in range(0, n_blocks):
+        if layer == 0:
+            features = layers.Conv2D(filters=feature_num, kernel_size=kernel_size,
+                                        activation=None, padding='same',
+                                        name= f'Conv{layer}_1')(feature_in)
+            normed = layers.BatchNormalization(name = f'bn{layer}_1')(features)
+            features_add = layers.ReLU(name = f'ReLU{layer}_1')(normed)
+        else:
+            features = layers.Conv2D(filters=feature_num, kernel_size=kernel_size,
+                                        activation=None, padding='same',
+                                        name=f'Conv{layer}_1')(features)
+            normed = layers.BatchNormalization(name = f'bn{layer}_1')(features)
+            features_add = layers.ReLU(name = f'ReLU{layer}_1')(normed + features_add)
+
+        features = layers.Conv2D(filters=feature_num, kernel_size=kernel_size,
+                                    activation=None, padding='same', dilation_rate=3,
+                                    name= f'DilateConv{layer}_2' )(features_add)
+        normed = layers.BatchNormalization(name = f'bn{layer}_2')(features)
+        features = layers.ReLU(name = f'ReLU{layer}_2')(normed)
+    # logits = layers.Conv2D(filters=n_classes, kernel_size=1, activation='softmax', padding='same', name = 'probs')(features)
+    return features
+
 def get_acnn_model(nclasses, nfilters, nchannels, depth):
     acnn_input = layers.Input((None, None, nchannels))
     logits = build_acnn_layers(acnn_input, depth = depth, nfilters = nfilters, nclasses = nclasses)
@@ -860,6 +900,66 @@ def get_acnn_model(nclasses, nfilters, nchannels, depth):
     # )
     return model
 
+def get_acnn_model2(nclasses, nchannels, nfilters = 16, depth = 16):
+    """Build an atrous convolutional neural network
+    
+    Params
+    ---
+    nclasses:int
+        number of output classes predicted by model
+    nchannels: int
+        number of input variables per training example
+    nfilters: int
+        number of convolutional filters per layer
+    depth: int
+        number of conv/atrous_conv layers
+
+    Returns
+    ---
+    tensorflow.keras.models.Model
+    """
+    input = layers.Input((None, None, nchannels))
+    features = build_acnn_layers2(feature_in = input, n_blocks=depth, kernel_size=3, feature_num=nfilters)
+    logits = logits = layers.Conv2D(filters=nclasses, kernel_size=1, activation='softmax', padding='same', name = 'probs')(features)
+    m = models.Model(inputs = input, outputs = logits)
+    return m
+
+def get_hierarchical_model(nclasses, acnn_nclasses, acnn_sub_nclasses, acnn_dim, lstm_dim, nfilters, depth):
+    """Build a hierarchical model with 4-class acnn, 8-class acnn, and lstm-acnn hybrid structures
+
+    Params
+    ---
+    nclasses: int
+        number of classes predicted by full hybrid model
+    acnn_nclasses: int
+        number of classes predicted by acnn model
+    acnn_sub_nclasses: number of classes predicted by acnn submodel
+    acnn_dim: list:int
+        expected H,W,C dimensions of incoming data to be ingested by acnn models
+    lstm_dim: list:int
+        expected T,H,W,C dimensions of incoming data to be ingested by lstm model
+    nfilters: int
+        number of convolutional filters per acnn layer
+    depth: int
+        number of acnn model layers
+    
+    Return
+    ---
+    tensorflow.keras.models.Model
+    """
+    midpoint = (depth-1)//2
+    acnn_model = get_acnn_model2(nclasses = acnn_nclasses, nfilters = nfilters, nchannels = acnn_dim[-1], depth = depth)
+    intermediate_acnn_layer = acnn_model.get_layer(f'ReLU{midpoint}_2')
+    acnn_sub_dense = layers.Conv2D(acnn_sub_nclasses, [1,1], activation = 'softmax', data_format = 'channels_last', padding = 'same', name = 'sub_probs')(intermediate_acnn_layer.output)
+    penultimate_acnn_layer = acnn_model.get_layer(f'ReLU{depth-1}_2')
+    acnn_dense = layers.Conv2D(acnn_nclasses, [1,1], activation = 'relu', data_format = 'channels_last', padding = 'same', name = 'acnn_probs')(penultimate_acnn_layer.output)
+    lstm_input = layers.Input(shape=(lstm_dim[0], None, None, lstm_dim[-1]))
+    lstm_output = build_lstm_layers(lstm_input)
+    lstm_resized = tf.image.resize(lstm_output, [acnn_dim[0], acnn_dim[1]], method = 'nearest')
+    concat_layer = layers.concatenate([lstm_resized, penultimate_acnn_layer.output], axis=-1)
+    concat_dense = layers.Conv2D(nclasses, [1,1], activation = 'softmax', data_format = 'channels_last', padding = 'same', name = 'lstm_probs')(concat_layer)
+    m = models.Model(inputs = [acnn_model.input, lstm_input], outputs = [acnn_sub_dense, acnn_dense, concat_dense])
+    return m
 ### MODEL EVALUATION TOOLS ###
 # def make_confusion_matrix_data(tpl, model, multiclass = False):
 #     predicted = model.predict(tpl[0], verbose = 1)

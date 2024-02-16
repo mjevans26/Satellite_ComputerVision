@@ -733,7 +733,7 @@ class LSTMDataGenerator(tf.keras.utils.Sequence):
         normalized = normalize_timeseries(reshaped, axis = 1)
         # harmonized = add_harmonic(normalized)
         if self.to_fit:
-            rearranged = rearrange_timesereis(normalized, self.n_channels)
+            rearranged = rearrange_timeseries(normalized, self.n_channels)
             feats, labels = split_timeseries(rearranged)
             # we can't have nans in label
             return feats, labels
@@ -821,11 +821,20 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
     Sequence based data generator. Suitable for building data generator for training and prediction.
     """
 
-    def __init__(self, s2files, s1files, naipfiles, labelfiles, lufiles, lidarfiles = None, hagfiles = None, n_classes = 8,
-                 to_fit=True, batch_size=32, unet_dim=(320, 320, 4),
-                 lc_transitions = [(12,3), (11,3), (10,3), (9,8), (255, 0)],
-                 lu_transitions = [(82,9), (84,10)],
-                 lstm_dim = (6, 32, 32, 6), shuffle=True):
+    def __init__(self,
+                 s2files, naipfiles, labelfiles,
+                lufiles = None,
+                lidarfiles = None,
+                demfiles = None,
+                hagfiles = None,
+                s1files = None,
+                ssurgofiles = None,
+                n_classes = 8,
+                to_fit=True, batch_size=32,
+                unet_dim=(320, 320, 4), lstm_dim = (6, 32, 32, 6), 
+                lc_transitions = [(12,3), (11,3), (10,3), (9,8), (255, 0)],
+                lu_transitions = [(82,9), (84,10)],
+                shuffle=True):
         """Class Initialization
 
         Params
@@ -859,8 +868,10 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         self.s1files = s1files
         self.naipfiles = naipfiles
         self.hagfiles = hagfiles
+        self.demfiles = demfiles
         self.lidarfiles = lidarfiles
         self.labelfiles = labelfiles
+        self.ssurgofiles = ssurgofiles
         self.lufiles = lufiles
         self.lc_trans = lc_transitions
         self.lu_trans = lu_transitions
@@ -901,70 +912,20 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         data = np.load(io.BytesIO(response.content))
         return(data)
 
-    def load_numpy_data(self, files_temp):
+    def _load_numpy_data(self, files_temp):
         arrays = [HybridDataGenerator.load_numpy_url(f) if f.startswith('http') else np.load(f) for f in files_temp]
         return(arrays)
 
-    def _get_unet_data(self, files_temp):
-        # arrays come from PC in (C, H, W) format
-        arrays = self.load_numpy_data(files_temp)
-        array_shapes = [x.shape for x in arrays]
+    def _get_s2_data(self, indexes):
+
+        files_temp = [self.s2files[k] for k in indexes]
+        # arrays come from PC in (T, C, H, W) format
+        # arrays = [np.load(f) for f in files_temp]
+        arrays = self._load_numpy_data(files_temp)
+
         try:
-            assert len(arrays) == self.batch_size, f'{len(arrays)} arrays, not enough for batch'
-            # make sure everything is 3D
-            assert all([len(x) == 3 for x in array_shapes]), 'all arrays in batch not 3D'
-            # ensure all arrays are channels first
-            arrays = [np.moveaxis(x, source = -1, destination = 0) if x.shape[-1] < x.shape[0] else x for x in arrays]
-            # creat a single (B, C, H, W) array per batch
-            batch = np.stack(arrays, axis = 0)
-            in_shape = batch.shape
-            # in case our incoming data is of different size than we want, define a trim amount
-            trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2) 
-            # If necessary, trim data to (-1, dims[0], dims[1])
-            array = batch[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
-            # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
-            reshaped = np.moveaxis(array, source = 1, destination = 3)
-            return reshaped
-        except AssertionError as msg:
-            print(msg)
-            return None
-        
-    def _get_naip_data(self, indexes):
-        # Find list of IDs
-        files_temp = [self.naipfiles[k] for k in indexes]
-        naip = self._get_unet_data(files_temp)
-        if type(naip) == np.ndarray:
-            rescaled = naip/255.0
-            recolored = aug_array_color(rescaled)
-            return recolored
-        else:
-            return naip 
-
-    def _get_hag_data(self, indexes):
-        files_temp = [self.hagfiles[k] for k in indexes]
-        hag = self._get_unet_data(files_temp)
-        if type(hag) == np.ndarray:
-            rescaled = hag/100
-            return rescaled  
-        else:
-            return hag 
-
-    def _get_lidar_data(self, indexes):
-        files_temp = [self.lidarfiles[k] for k in indexes]
-        lidar = self._get_unet_data(files_temp)
-        if type(lidar) == np.ndarray:
-            rescaled = lidar/100
-            return rescaled  
-        else:
-            return lidar      
-
-    def _get_lstm_data(self, files_temp):
-        arrays = self.load_numpy_data(files_temp)
-        array_shapes = [x.shape for x in arrays]
-        try:
-            assert len(arrays) == self.batch_size, f'{len(arrays)} arrays, not enough for batch'
-            # make sure everything is 3D
-            assert all([len(x) == 4 for x in array_shapes]), 'all arrays in batch not 3D'
+            assert len(arrays) > 0
+            assert all([x.shape == (self.lstm_dim[0], self.lstm_dim[3], self.lstm_dim[1], self.lstm_dim[2]) for x in arrays])
         
             # creat a single (B, T, C, H, W) array
             batch = np.stack(arrays, axis = 0)
@@ -975,58 +936,111 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
 
             # rearrange arrays from (B, T, C, H, W) -> (B, T, H, W, C) expected by model
             reshaped = np.moveaxis(array, source = 2, destination = 4)
-            return reshaped
-        except AssertionError as msg:
-            print(msg)
+            normalized = normalize_timeseries(reshaped, axis = 1)
+            recolored = aug_array_color(normalized)
+            return recolored
+        except AssertionError:
             return None
-        
-    def _get_s2_data(self, indexes):
-        files_temp = [self.s2files[k] for k in indexes]
-        s2 = self._get_lstm_data(files_temp)
-        if type(s2) == np.ndarray:
-            rescaled = s2/10000.0
-            recolored = aug_array_color(rescaled)
+
+    def _get_unet_data(self, files_temp):
+        arrays = self._load_numpy_data(files_temp)
+        try:
+          assert len(arrays) > 0
+          assert all([len(x.shape) == 3 for x in arrays]), 'all arrays not 3D'
+          # ensure all arrays are C, H, W to start
+          chw = [np.moveaxis(x, source = -1, destination = 0) if x.shape[-1] < x.shape[0] else x for x in arrays]
+          # creat a single (B, C, H, W) array per batch
+          batch = np.stack(chw, axis = 0)
+          in_shape = batch.shape
+          # in case our incoming data is of different size than we want, define a trim amount
+          trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2) 
+          # If necessary, trim data to (-1, dims[0], dims[1])
+          array = batch[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
+          # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
+          reshaped = np.moveaxis(array, source = 1, destination = 3)
+          return reshaped
+        except AssertionError as msg:
+          print(msg)
+          return None
+
+    def _get_naip_data(self, indexes):
+        # Find list of IDs
+        files_temp = [self.naipfiles[k] for k in indexes]
+        reshaped = self._get_unet_data(files_temp)
+        if type(reshaped) == np.ndarray:
+            normalized = reshaped/255.0
+            recolored = aug_array_color(normalized)
             return recolored
         else:
-            return s2
-
-    def _get_s1_data(self, indexes):
-        files_temp = [self.s1files[k] for k in indexes]
-        s1 = self._get_lstm_data(files_temp)
-        if type(s1) == np.ndarray:
-            rescaled = s1/100.0 # TODO: Mike - figure out s1 range for VV VH
-            return rescaled
+            return None
+    
+    def _get_lidar_data(self, indexes):
+        files_temp = [self.lidarfiles[k] for k in indexes]
+        reshaped = self._get_unet_data(files_temp)
+        if type(reshaped) == np.ndarray:
+          normalized = reshaped/100.0
+          return normalized
         else:
-            return s1
+          return None
+    
+    def _get_dem_data(self, indexes):
+        files_temp = [self.demfiles[k] for k in indexes]
+        reshaped = self._get_unet_data(files_temp)
+        if type(reshaped) == np.ndarray:
+          normalized = reshaped/2000.0
+          return normalized
+        else:
+          return None
+
+    def _get_hag_data(self, indexes):
+        files_temp = [self.hagfiles[k] for k in indexes]
+        reshaped = self._get_unet_data(files_temp)
+        if type(reshaped) == np.ndarray:
+          normalized = reshaped/100.0
+          return normalized
+        else:
+          return None
+
+    def _get_ssurgo_data(self, indexes):
+        files_temp = [self.ssurgofiles[k] for k in indexes]
+        reshaped = self._get_unet_data(files_temp)
+        return reshaped
 
     def _process_y(self, indexes):
         # get label files for current batch
         lc_files = [self.labelfiles[k] for k in indexes]
-        lc_arrays = self.load_numpy_data(lc_files)
+        # lc_arrays = [np.load(file) for file in lc_files]
+        lc_arrays = self._load_numpy_data(lc_files)
         try:
             assert len(lc_arrays) == self.batch_size
             assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lc_arrays])
             lc = np.stack(lc_arrays, axis = 0) #(B, C, H, W)
             int_labels = lc.astype(int)
 
+            # optionally reduce the number of classes 
             if self.lc_trans:
-                int_labels = merge_classes(cond_array = int_labels, trans = self.lc_trans, out_array = int_labels)
+              merged_labels = merge_classes(cond_array = int_labels, trans = self.trans, out_array = int_labels)
+            else:
+              merged_labels = int_labels
 
             if self.lufiles:
                 lu_files = [self.lufiles[k] for k in indexes]
-                lu_arrays = self.load_numpy_data(lu_files)
+                # lu_arrays = [np.load(file) for file in lu_files]
+                lu_arrays = self._load_numpy_data(lu_files)
                 try:
                     assert len(lu_arrays) == self.batch_size
                     assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lu_arrays])                
                     lu = np.stack(lu_arrays, axis = 0) #(B, C, H, W)
-                    int_labels = merge_classes(cond_array = lu, trans = self.lu_trans, out_array = int_labels)
+                    y = merge_classes(cond_array = lu, trans = [(82,9), (84,10)], out_array = merged_labels)
                 except AssertionError:
                     return None
+            else:
+                y = merged_labels
 
             # If necessary, trim data to (-1, dims[0], dims[1])
-            in_shape = int_labels.shape
+            in_shape = y.shape
             trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2) 
-            array = int_labels[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
+            array = y[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
 
             # shift range of categorical labels from [1, n_classes] to [0, n_classes]
             zeroed = array - 1
@@ -1048,43 +1062,46 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         
         indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
 
-        lstmDatasets = []
         unetDatasets = []
-
+        lstmDatasets = []
         if self.s2files:
-            s2Data = self._get_s2_data(indexes)
-            lstmDatasets.append(s2Data)
-
-        if self.s1files:
-            s1Data = self._get_s1_data(indexes)
-            lstmDatasets.append(s1Data)
-
+          s2Data = self._get_s2_data(indexes)
+          lstmDatasets.append(s2Data)
         if self.naipfiles:
-            naipData = self._get_naip_data(indexes)
-            unetDatasets.append(naipData)
-        
-        if self.hagfiles:
-            hagData = self._get_hag_data(indexes)
-            unetDatasets.append(hagData)
-        
+          naipData = self._get_naip_data(indexes)
+          unetDatasets.append(naipData)
         if self.lidarfiles:
-            lidarData = self._get_lidar_data(indexes)
-            unetDatasets.append(lidarData)
+          lidarData = self._get_lidar_data(indexes)
+          unetDatasets.append(lidarData)
+        if self.demfiles:
+          demData = self._get_dem_data(indexes)
+          unetDatasets.append(demData)
+        if self.hagfiles:
+          hagData = self._get_hag_data(indexes)
+          unetDatasets.append(hagData)
+        if self.ssurgofiles:
+          ssurgoData = self._get_ssurgo_data(indexes)
+          unetDatasets.append(ssurgoData)
 
         labels = self._process_y(indexes)
-
-        if any([type(dat) == type(None) for dat in unetDatasets+lstmDatasets]):
-            return self.__getitem__(randint(0, len(self.indexes) - self.batch_size))
-
+        if any([type(dat) != np.ndarray for dat in unetDatasets + lstmDatasets]):
+          pass
         else:
-            unetData = np.concatenate(unetDatasets, axis = -1)
-            lstmData = np.concatenate(lstmDatasets, axis = -1)
+          unetData = np.concatenate(unetDatasets, axis = -1)
+          lstmData = np.concatenate(lstmDatasets, axis = -1)
+        feats = [unetData, lstmData]
+        # if type(lidarData) == np.ndarray:
+        #     unetData = np.concatenate([naipData, lidarData], axis = -1)
+        # else:
+        #     unetData = naipData
 
-            feats = [unetData, lstmData]
+        # feats = [unetData, s2Data]
+        # if any([type(dat) == type(None) for dat in feats]):
+        #     return self.__getitem__(randint(0, len(self.indexes) - self.batch_size))
 
         if self.to_fit:
             if type(labels) == type(None):
-                return self.__getitem__(randint(0, len(self.indexes) - self.batch_size))
+                pass
             # feats, labels = split_timeseries(rearranged)
             # we can't have nans in label
             else:
