@@ -409,7 +409,7 @@ def binary_unet(bias = None):
         bias = tf.keras.initializers.Constant(bias)
         
     inputs = layers.Input(shape=[None, None, None]) # 256
-    encoder0_pool, encoder0 = encoder_block(input_tensor, 32) # 128
+    encoder0_pool, encoder0 = encoder_block(inputs, 32) # 128
     encoder1_pool, encoder1 = encoder_block(encoder0_pool, 64) # 64
     encoder2_pool, encoder2 = encoder_block(encoder1_pool, 128) # 32
     encoder3_pool, encoder3 = encoder_block(encoder2_pool, 256) # 16
@@ -952,7 +952,7 @@ def get_hierarchical_model(nclasses, acnn_nclasses, acnn_sub_nclasses, acnn_dim,
     intermediate_acnn_layer = acnn_model.get_layer(f'ReLU{midpoint}_2')
     acnn_sub_dense = layers.Conv2D(acnn_sub_nclasses, [1,1], activation = 'softmax', data_format = 'channels_last', padding = 'same', name = 'sub_probs')(intermediate_acnn_layer.output)
     penultimate_acnn_layer = acnn_model.get_layer(f'ReLU{depth-1}_2')
-    acnn_dense = layers.Conv2D(acnn_nclasses, [1,1], activation = 'relu', data_format = 'channels_last', padding = 'same', name = 'acnn_probs')(penultimate_acnn_layer.output)
+    acnn_dense = layers.Conv2D(acnn_nclasses, [1,1], activation = 'softmax', data_format = 'channels_last', padding = 'same', name = 'acnn_probs')(penultimate_acnn_layer.output)
     lstm_input = layers.Input(shape=(lstm_dim[0], None, None, lstm_dim[-1]))
     lstm_output = build_lstm_layers(lstm_input)
     lstm_resized = tf.image.resize(lstm_output, [acnn_dim[0], acnn_dim[1]], method = 'nearest')
