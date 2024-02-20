@@ -458,7 +458,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         data = np.load(io.BytesIO(response.content))
         return(data)
 
-    def load_numpy_data(self, files_temp):
+    def _load_numpy_data(self, files_temp):
         arrays = [UNETDataGenerator.load_numpy_url(f) if f.startswith('http') else np.load(f) for f in files_temp]
         return(arrays)
 
@@ -601,7 +601,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             ssurgoData = self._get_ssurgo_data(indexes)
             # print('ssurgo', ssurgoData.shape)
             datasets.append(ssurgoData)
-            
+
         if self.lidarfiles:
             lidarData = self._get_lidar_data(indexes)
             datasets.append(lidarData)
