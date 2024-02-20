@@ -394,6 +394,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
     """
     def __init__(self, labelfiles = None, s2files = None, naipfiles = None, 
                  hagfiles = None, lidarfiles = None, lufiles = None,
+                 demfiles = None, ssurgofiles = None,
                  to_fit=True, batch_size=32, dim=(256, 256),
                  n_channels=4, n_classes = 8, shuffle=True,
                  splits = None, moments = None, translations = None):
@@ -411,6 +412,8 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         self.s2files = s2files
         self.naipfiles = naipfiles
         self.hagfiles = hagfiles
+        self.demfiles = demfiles
+        self.ssurgofiles = ssurgofiles
         self.lidarfiles = lidarfiles
         self.labelfiles = labelfiles
         self.lufiles = lufiles
@@ -461,27 +464,25 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
 
     def _get_x_data(self, files_temp):
         # arrays come from PC in (C, H, W) format
-        arrays = self.load_numpy_data(files_temp)
-        array_shapes = [x.shape for x in arrays]
+        arrays = self._load_numpy_data(files_temp)
         try:
-            assert len(arrays) == self.batch_size, f'{len(arrays)} arrays, not enough for batch'
-            # make sure everything is 3D
-            assert all([len(x) == 3 for x in array_shapes]), 'all arrays in batch not 3D'
-            # ensure all arrays are channels first
-            arrays = [np.moveaxis(x, source = -1, destination = 0) if x.shape[-1] < x.shape[0] else x for x in arrays]
-            # creat a single (B, C, H, W) array per batch
-            batch = np.stack(arrays, axis = 0)
-            in_shape = batch.shape
-            # in case our incoming data is of different size than we want, define a trim amount
-            trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2) 
-            # If necessary, trim data to (-1, dims[0], dims[1])
-            array = batch[:,:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
-            # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
-            reshaped = np.moveaxis(array, source = 1, destination = 3)
-            return reshaped
+          assert len(arrays) > 0
+          assert all([len(x.shape) == 3 for x in arrays]), 'all arrays not 3D'
+          # ensure all arrays are C, H, W to start
+          chw = [np.moveaxis(x, source = -1, destination = 0) if x.shape[-1] < x.shape[0] else x for x in arrays]
+          # creat a single (B, C, H, W) array per batch
+          batch = np.stack(chw, axis = 0)
+          in_shape = batch.shape
+          # in case our incoming data is of different size than we want, define a trim amount
+          trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2) 
+          # If necessary, trim data to (-1, dims[0], dims[1])
+          array = batch[:,:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
+          # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
+          reshaped = np.moveaxis(array, source = 1, destination = 3)
+          return reshaped
         except AssertionError as msg:
-            print(msg)
-            return None
+          print(msg)
+          return None
     
     def _get_naip_data(self, indexes):
         files_temp = [self.naipfiles[k] for k in indexes]
@@ -519,8 +520,26 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             rescaled = hag/100
             return rescaled
         else:
-            return hag    
+            return hag 
+           
+    def _get_dem_data(self, indexes):
+        files_temp = [self.demfiles[k] for k in indexes]
+        dem = self._get_x_data(files_temp)
+        if type(dem) == np.ndarray:
+          rescaled = dem/2000.0 # we are going to use the min and max elevations across the chesapeake
+        else:
+          rescaled = dem
+        return rescaled
 
+    def _get_ssurgo_data(self, indexes):
+      files_temp = [self.ssurgofiles[k] for k in indexes]
+      ssurgo = self._get_x_data(files_temp)
+      if type(ssurgo) == np.ndarray:
+          rescaled = ssurgo 
+          return rescaled
+      else:
+          return ssurgo
+      
     def _process_y(self, indexes):
         # get label files for current batch
         lc_files = [self.labelfiles[k] for k in indexes]
@@ -573,6 +592,16 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             hagData = self._get_hag_data(indexes)
             datasets.append(hagData)
 
+        if self.demfiles:
+            demData = self._get_dem_data(indexes)
+            # print('dem', demData.shape)
+            datasets.append(demData)
+
+        if self.ssurgofiles:
+            ssurgoData = self._get_ssurgo_data(indexes)
+            # print('ssurgo', ssurgoData.shape)
+            datasets.append(ssurgoData)
+            
         if self.lidarfiles:
             lidarData = self._get_lidar_data(indexes)
             datasets.append(lidarData)
