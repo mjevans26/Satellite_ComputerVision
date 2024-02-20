@@ -920,7 +920,7 @@ def get_acnn_model2(nclasses, nchannels, nfilters = 16, depth = 16):
     """
     input = layers.Input((None, None, nchannels))
     features = build_acnn_layers2(feature_in = input, n_blocks=depth, kernel_size=3, feature_num=nfilters)
-    logits = logits = layers.Conv2D(filters=nclasses, kernel_size=1, activation='softmax', padding='same', name = 'probs')(features)
+    logits = layers.Conv2D(filters=nclasses, kernel_size=1, activation='softmax', padding='same', name = 'probs')(features)
     m = models.Model(inputs = input, outputs = logits)
     return m
 
