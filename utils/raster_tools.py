@@ -390,5 +390,17 @@ def numpy_to_raster(arr: np.ndarray, mixer: dict, out_file: str, dtype:str):
         'nodata':255
     }
     band_list = list(range(1,C+1))
-    with rio.open(out_file, mode = 'w', **meta) as src:
+    temp_file = out_file.replace(".tif","_temp.tif")
+
+    with rio.open(temp_file, mode = 'w', **meta) as src:
         src.write(arr, band_list)
+        src.close()
+
+    ds = gdal.Open(temp_file)
+    
+    options = gdal.TranslateOptions(format = 'COG',creationOptions = ["COMPRESS=LZW"])
+    ds = gdal.Translate(destName=out_file, srcDS=ds, options=options)
+    ds = None
+    
+    os.remove(temp_file)
+
