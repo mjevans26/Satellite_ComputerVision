@@ -472,6 +472,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
           chw = [np.moveaxis(x, source = -1, destination = 0) if x.shape[-1] < x.shape[0] else x for x in arrays]
           # creat a single (B, C, H, W) array per batch
           batch = np.stack(chw, axis = 0)
+          assert np.isnan(batch).sum() < 1, 'nans in batch, skipping'
           in_shape = batch.shape
           # in case our incoming data is of different size than we want, define a trim amount
           trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2) 
@@ -527,23 +528,19 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         dem = self._get_x_data(files_temp)
         if type(dem) == np.ndarray:
           rescaled = dem/2000.0 # we are going to use the min and max elevations across the chesapeake
+          return rescaled
         else:
-          rescaled = dem
-        return rescaled
+          return dem
 
     def _get_ssurgo_data(self, indexes):
       files_temp = [self.ssurgofiles[k] for k in indexes]
       ssurgo = self._get_x_data(files_temp)
-      if type(ssurgo) == np.ndarray:
-          rescaled = ssurgo 
-          return rescaled
-      else:
-          return ssurgo
+      return ssurgo
       
     def _process_y(self, indexes):
         # get label files for current batch
         lc_files = [self.labelfiles[k] for k in indexes]
-        lc_arrays = self.load_numpy_data(lc_files)
+        lc_arrays = self._load_numpy_data(lc_files)
         lc = np.stack(lc_arrays, axis = 0) #(B, C, H, W)
         int_labels = lc.astype(int)
 
@@ -605,11 +602,13 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         if self.lidarfiles:
             lidarData = self._get_lidar_data(indexes)
             datasets.append(lidarData)
-        
-        xData = np.concatenate(datasets, axis = -1)
 
         labels = self._process_y(indexes)
-        
+        if any([type(dat) != np.ndarray for dat in datasets]):
+          pass
+        else:
+            xData = np.concatenate(datasets, axis = -1)
+
         # perform morphological augmentation - expects a 3D (H, W, C) image array
         stacked = np.concatenate([xData, labels], axis = -1)
         morphed = aug_array_morph(stacked)
