@@ -452,10 +452,16 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             np.random.shuffle(self.indexes)
     
     @staticmethod
-    def load_numpy_url(url):
-        response = requests.get(url)
-        response.raise_for_status()
-        data = np.load(io.BytesIO(response.content))
+    def load_numpy_url(url,local_file_loc):
+        file_name = url.split("/")[-1]
+        file_path = os.path.join(local_file_loc,file_name)
+        if os.path.exists(file_path):
+            data = np.load(file_path)
+        else:
+            response = requests.get(url)
+            response.raise_for_status()
+            data = np.load(io.BytesIO(response.content))
+            np.save(file_path,data)
         return(data)
 
     def _load_numpy_data(self, files_temp):
@@ -935,10 +941,16 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
             yield item 
     
     @staticmethod
-    def load_numpy_url(url):
-        response = requests.get(url)
-        response.raise_for_status()
-        data = np.load(io.BytesIO(response.content))
+    def load_numpy_url(url,local_file_loc):
+        file_name = url.split("/")[-1]
+        file_path = os.path.join(local_file_loc,file_name)
+        if os.path.exists(file_path):
+            data = np.load(file_path)
+        else:
+            response = requests.get(url)
+            response.raise_for_status()
+            data = np.load(io.BytesIO(response.content))
+            np.save(file_path,data)
         return(data)
 
     def _load_numpy_data(self, files_temp):
