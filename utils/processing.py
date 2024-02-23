@@ -665,13 +665,13 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             lidarData = self._get_lidar_data(indexes)
             datasets.append(lidarData)
 
-        labels = self._process_y(indexes)
         if any([type(dat) != np.ndarray for dat in datasets]):
           pass
         else:
             xData = np.concatenate(datasets, axis = -1)
 
         if self.to_fit:
+            labels = self._process_y(indexes)
             # perform morphological augmentation - expects a 3D (H, W, C) image array
             stacked = np.concatenate([xData, labels], axis = -1)
             morphed = aug_array_morph(stacked)
@@ -1178,7 +1178,6 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
           ssurgoData = self._get_ssurgo_data(indexes)
           unetDatasets.append(ssurgoData)
 
-        labels = self._process_y(indexes)
         if any([type(dat) != np.ndarray for dat in unetDatasets + lstmDatasets]):
           pass
         else:
@@ -1195,6 +1194,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         #     return self.__getitem__(randint(0, len(self.indexes) - self.batch_size))
 
         if self.to_fit:
+            labels = self._process_y(indexes)
             if type(labels) == type(None):
                 pass
             # feats, labels = split_timeseries(rearranged)
