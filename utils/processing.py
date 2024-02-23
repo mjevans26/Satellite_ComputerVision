@@ -509,9 +509,8 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             np.random.shuffle(self.indexes)
     
     @staticmethod
-    def load_numpy_url(file_tuple):
-        url = file_tuple[0]
-        local_file_loc = file_tuple[-1]
+    def load_numpy_url(url):
+        local_file_loc = ""
         file_name = url.split("/")[-1]
         file_path = os.path.join(local_file_loc,file_name)
         if os.path.exists(file_path):
@@ -1003,7 +1002,8 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
             yield item 
     
     @staticmethod
-    def load_numpy_url(url,local_file_loc):
+    def load_numpy_url(url):
+        local_file_loc = ""
         file_name = url.split("/")[-1]
         file_path = os.path.join(local_file_loc,file_name)
         if os.path.exists(file_path):
@@ -1016,7 +1016,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         return(data)
 
     def _load_numpy_data(self, files_temp):
-        arrays = [HybridDataGenerator.load_numpy_url(f) if f.startswith('http') else np.load(f) for f in files_temp]
+        arrays = [HybridDataGenerator.load_numpy_url(f) for f in files_temp]
         return(arrays)
 
     def _get_s2_data(self, indexes):
