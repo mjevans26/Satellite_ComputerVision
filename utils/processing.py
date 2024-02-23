@@ -8,6 +8,7 @@ import tensorflow as tf
 import numpy as np
 import math
 import os
+import copy
 import sys
 import requests
 import io
@@ -22,6 +23,62 @@ if str(DIR) not in sys.path:
     sys.path.append(str(DIR)) 
 
 from array_tools import merge_classes, normalize_array, rescale_array, aug_array_color, aug_array_morph, rearrange_timeseries, normalize_timeseries, make_harmonics
+
+def get_file_id(f:str, delim:str = '_', parts:slice = slice(3,5)):
+    """Return a unique identifyier from a file name
+    
+    Params
+    ---
+    f: str
+        file basename
+    delim: str
+        delimiter optionally splitting filename into parts
+    parts: slice
+        slice identifying the parts to return
+    
+    Returns
+    ---
+    tuple: tuple of filename pieces
+    """
+    stem = str(Path(f).stem)
+    splits = stem.split(delim)
+    ids = splits[parts]
+    return tuple(ids)
+
+def match_files(urls, vars, delim:str = '_', parts:slice = slice(3,5), subset: set = None):
+    """Align files by unique id among variables
+    Params
+    ---
+    urls: list:str
+      unordered list of all filepaths to be sorted and aligned by variable
+    vars: dict
+      key, value pairs with variable names as keys (e.g., 'naip'). value = None will skip that variable
+    delim: str
+        delimiter optionally splitting filename into parts
+    parts: slice
+        slice identifying the parts to return
+    subset: set
+      optional. unique ids with which to further subset the returned files
+
+    Returns
+    ---
+    dict: key, value pairs for each valid key in vars. variable names are key (e.g. 'naip') and values are corresponding list of files
+    """  
+
+    print(len(subset))
+    vars_copy = copy.deepcopy(vars)
+    files_dic = {key:[url for url in urls if f'/{key}/' in url] for key in vars.keys() if vars[key]['files'] is not None}
+    ids = [set([get_file_id(f, delim, parts) for f in files]) for files in files_dic.values()] # list of sets per var
+    intersection = set.intersection(*ids)
+    if subset:
+        intx = intersection.intersection(subset)
+    else:
+        intx = intersection
+    for var, ls in files_dic.items():
+       subset = [f for f in ls if get_file_id(f, delim, parts) in intx]
+       vars_copy[var].update({"files": subset})
+
+    return vars_copy
 
 def split_files(files, labels = ['label', 'lu', 'naip', 'lidar', 's2'], delim = '_', parts = slice(3,5)):
   """Divide list of .npy arrays into separate lists by source data (e.g. NAIP, S2, etc.)
@@ -478,6 +535,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
           chw = [np.moveaxis(x, source = -1, destination = 0) if x.shape[-1] < x.shape[0] else x for x in arrays]
           # creat a single (B, C, H, W) array per batch
           batch = np.stack(chw, axis = 0)
+          assert np.isnan(batch).sum() < 1, 'nans in batch, skipping'
           in_shape = batch.shape
           # in case our incoming data is of different size than we want, define a trim amount
           trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2) 
@@ -495,8 +553,10 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         naip = self._get_x_data(files_temp)
         if type(naip) == np.ndarray:
             rescaled = naip/255.0
-            recolored = aug_array_color(rescaled)
-            return recolored
+            if self.to_fit:
+                recolored = aug_array_color(rescaled)
+                return recolored
+            return rescaled
         else:
             return naip
     
@@ -505,8 +565,11 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         s2 = self._get_x_data(files_temp)
         if type(s2) == np.ndarray:
             rescaled = s2/10000.0
-            recolored = aug_array_color(rescaled)
-            return recolored
+            if self.to_fit:
+                recolored = aug_array_color(rescaled)
+                return recolored
+            else:
+                return rescaled
         else:
             return s2
     
@@ -533,23 +596,19 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         dem = self._get_x_data(files_temp)
         if type(dem) == np.ndarray:
           rescaled = dem/2000.0 # we are going to use the min and max elevations across the chesapeake
+          return rescaled
         else:
-          rescaled = dem
-        return rescaled
+          return dem
 
     def _get_ssurgo_data(self, indexes):
-      files_temp = [self.ssurgofiles[k] for k in indexes]
-      ssurgo = self._get_x_data(files_temp)
-      if type(ssurgo) == np.ndarray:
-          rescaled = ssurgo 
-          return rescaled
-      else:
-          return ssurgo
+        files_temp = [self.ssurgofiles[k] for k in indexes]
+        ssurgo = self._get_x_data(files_temp)
+        return ssurgo
       
     def _process_y(self, indexes):
         # get label files for current batch
         lc_files = [self.labelfiles[k] for k in indexes]
-        lc_arrays = self.load_numpy_data(lc_files)
+        lc_arrays = self._load_numpy_data(lc_files)
         lc = np.stack(lc_arrays, axis = 0) #(B, C, H, W)
         int_labels = lc.astype(int)
 
@@ -611,20 +670,21 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         if self.lidarfiles:
             lidarData = self._get_lidar_data(indexes)
             datasets.append(lidarData)
-        
-        xData = np.concatenate(datasets, axis = -1)
 
-        labels = self._process_y(indexes)
-        
-        # perform morphological augmentation - expects a 3D (H, W, C) image array
-        stacked = np.concatenate([xData, labels], axis = -1)
-        morphed = aug_array_morph(stacked)
-        # print('augmented max', np.nanmax(augmented, axis = (0,1,2)))
-
-        feats = morphed[:,:,:,0:self.n_channels]
-        labels = morphed[:,:,:,self.n_channels:]
+        if any([type(dat) != np.ndarray for dat in datasets]):
+          pass
+        else:
+            xData = np.concatenate(datasets, axis = -1)
 
         if self.to_fit:
+            labels = self._process_y(indexes)
+            # perform morphological augmentation - expects a 3D (H, W, C) image array
+            stacked = np.concatenate([xData, labels], axis = -1)
+            morphed = aug_array_morph(stacked)
+            # print('augmented max', np.nanmax(augmented, axis = (0,1,2)))
+
+            feats = morphed[:,:,:,0:self.n_channels]
+            labels = morphed[:,:,:,self.n_channels:]
             return feats, labels
         else:
             return xData
@@ -978,7 +1038,10 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
             # rearrange arrays from (B, T, C, H, W) -> (B, T, H, W, C) expected by model
             reshaped = np.moveaxis(array, source = 2, destination = 4)
             normalized = normalize_timeseries(reshaped, axis = 1)
-            recolored = aug_array_color(normalized)
+            if self.to_fit:
+                recolored = aug_array_color(normalized)
+            else:
+                recolored = normalized
             return recolored
         except AssertionError:
             return None
@@ -1010,8 +1073,11 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         reshaped = self._get_unet_data(files_temp)
         if type(reshaped) == np.ndarray:
             normalized = reshaped/255.0
-            recolored = aug_array_color(normalized)
-            return recolored
+            if self.to_fit:
+                recolored = aug_array_color(normalized)
+                return recolored
+            else:
+                return normalized
         else:
             return None
     
@@ -1111,20 +1177,19 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         if self.naipfiles:
           naipData = self._get_naip_data(indexes)
           unetDatasets.append(naipData)
-        if self.lidarfiles:
-          lidarData = self._get_lidar_data(indexes)
-          unetDatasets.append(lidarData)
         if self.demfiles:
           demData = self._get_dem_data(indexes)
           unetDatasets.append(demData)
         if self.hagfiles:
           hagData = self._get_hag_data(indexes)
           unetDatasets.append(hagData)
+        if self.lidarfiles:
+          lidarData = self._get_lidar_data(indexes)
+          unetDatasets.append(lidarData)
         if self.ssurgofiles:
           ssurgoData = self._get_ssurgo_data(indexes)
           unetDatasets.append(ssurgoData)
 
-        labels = self._process_y(indexes)
         if any([type(dat) != np.ndarray for dat in unetDatasets + lstmDatasets]):
           pass
         else:
@@ -1141,6 +1206,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         #     return self.__getitem__(randint(0, len(self.indexes) - self.batch_size))
 
         if self.to_fit:
+            labels = self._process_y(indexes)
             if type(labels) == type(None):
                 pass
             # feats, labels = split_timeseries(rearranged)
