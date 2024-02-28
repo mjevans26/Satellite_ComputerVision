@@ -181,7 +181,7 @@ def naip_mosaic(naips: list, crs: int):
     # reprojected = naipImage.rio.reproject('EPSG:4326')
     return(naipImage)
 
-def get_s2_stac(dates, aoi):
+def get_s2_stac(dates, aoi, cloud_thresh = 10):
     """from a pystac client return a stac of s2 imagery
 
     Parameters 
@@ -206,7 +206,7 @@ def get_s2_stac(dates, aoi):
         collections = ['sentinel-2-l2a'],
         datetime = dates,
         intersects = aoi,
-        query={"eo:cloud_cover": {"lt": 10}} 
+        query={"eo:cloud_cover": {"lt": cloud_thresh}} 
     )
 
     s2items = [item.to_dict() for item in list(search.get_items())]
