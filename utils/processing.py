@@ -537,6 +537,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
           # creat a single (B, C, H, W) array per batch
           batch = np.stack(chw, axis = 0)
           assert np.isnan(batch).sum() < 1, 'nans in batch, skipping'
+          assert np.min(batch) > -5000, "Min value less than -5K, skipping"
           in_shape = batch.shape
           # in case our incoming data is of different size than we want, define a trim amount
           trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2) 
