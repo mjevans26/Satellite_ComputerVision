@@ -559,8 +559,8 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
                 recolored = aug_array_color(rescaled)
                 return recolored
             return rescaled
-        else:
-            return naip
+        # else:
+        #     return naip
     
     def _get_s2_data(self, indexes):
         files_temp = [self.s2files[k] for k in indexes]
@@ -572,8 +572,8 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
                 return recolored
             else:
                 return rescaled
-        else:
-            return s2
+        # else:
+        #     return s2
     
     def _get_lidar_data(self, indexes):
         files_temp = [self.lidarfiles[k] for k in indexes]
@@ -581,8 +581,8 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         if type(lidar) == np.ndarray:
             rescaled = lidar/100
             return rescaled  
-        else:
-            return lidar 
+        # else:
+        #     return lidar 
 
     def _get_hag_data(self, indexes):
         files_temp = [self.hagfiles[k] for k in indexes]
@@ -590,8 +590,8 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         if type(hag) == np.ndarray:
             rescaled = hag/100
             return rescaled
-        else:
-            return hag 
+        # else:
+        #     return hag 
            
     def _get_dem_data(self, indexes):
         files_temp = [self.demfiles[k] for k in indexes]
@@ -599,13 +599,14 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         if type(dem) == np.ndarray:
           rescaled = dem/2000.0 # we are going to use the min and max elevations across the chesapeake
           return rescaled
-        else:
-          return dem
+        # else:
+        #   return dem
 
     def _get_ssurgo_data(self, indexes):
         files_temp = [self.ssurgofiles[k] for k in indexes]
         ssurgo = self._get_x_data(files_temp)
-        return ssurgo
+        if type(ssurgo) == np.ndarray:
+            return ssurgo
       
     def _process_y(self, indexes):
         # get label files for current batch
