@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Created on Fri Mar 20 10:50:44 2020
 
@@ -20,13 +19,13 @@ ROOT = FILE.parents[0]
 DIR = Path(os.path.relpath(ROOT, Path.cwd()))
 
 if str(DIR) not in sys.path:
-    sys.path.append(str(DIR)) 
+    sys.path.append(str(DIR))
 
 from array_tools import merge_classes, normalize_array, rescale_array, aug_array_color, aug_array_morph, rearrange_timeseries, normalize_timeseries, make_harmonics
 
 def get_file_id(f:str, delim:str = '_', parts:slice = slice(3,5)):
     """Return a unique identifyier from a file name
-    
+
     Params
     ---
     f: str
@@ -35,7 +34,7 @@ def get_file_id(f:str, delim:str = '_', parts:slice = slice(3,5)):
         delimiter optionally splitting filename into parts
     parts: slice
         slice identifying the parts to return
-    
+
     Returns
     ---
     tuple: tuple of filename pieces
@@ -63,7 +62,7 @@ def match_files(urls, vars, delim:str = '_', parts:slice = slice(3,5), subset: s
     Returns
     ---
     dict: key, value pairs for each valid key in vars. variable names are key (e.g. 'naip') and values are corresponding list of files
-    """  
+    """
 
     print(len(subset))
     vars_copy = copy.deepcopy(vars)
@@ -89,11 +88,11 @@ def split_files(files, labels = ['label', 'lu', 'naip', 'lidar', 's2'], delim = 
     list of files to be split
   labels: list(str)
     list of prefixes identifying subsets of files to return
-  
+
   Return
   ---
   list, list, list: tuple of lists per file subset
-  """    
+  """
   def get_file_id(f, parts):
     stem = str(Path(f).stem)
     splits = stem.split(delim)
@@ -157,14 +156,14 @@ def augColor(x, contra_adj = 0.05, bright_adj = 0.05):
     x = tf.image.random_brightness(x, 0.05)
     x = tf.image.random_contrast(x, 0.7, 1.3)
     return x
-  
+
 def aug_tensor_morph(img):
     """
     Perform image augmentation on tfRecords
     Parameters:
         img (TFRecord): 4D tensor
     Returns:
-        3D tensor: 
+        3D tensor:
     """
     outDims = tf.shape(img)[0:1]
     x = tf.image.random_flip_left_right(img)
@@ -213,12 +212,12 @@ def sin_cos(t:int, freq:int = 6) -> tuple:
     x = t/freq
     theta = 2*math.pi * x
     return (math.sin(theta), math.cos(theta))
-    
+
 def normalize_tensor(x, axes=[2], epsilon=1e-8, moments = None, splits = None):
     """
     Standardize incoming image patches by mean and variance.
 
-    Moments can be calculated based on patch data by providing axes:      
+    Moments can be calculated based on patch data by providing axes:
     To standardize each pixel use axes = [2]
     To standardize each channel use axes = [0, 1]
     To standardize globally use axes = [0, 1, 2]
@@ -226,7 +225,7 @@ def normalize_tensor(x, axes=[2], epsilon=1e-8, moments = None, splits = None):
     To standardize by global, or per-channel moments supply a list of [mean, variance] tuples.
     To standardize groups of channels separately, identify the size of each group. Groups of
     channels must be stacked contiguously and group sizes must sum to the total # of channels
-    
+
     Parameters:
         x (tensor): nD image tensor
         axes (array): Array of ints. Axes along which to compute mean and variance, usually length n-1
@@ -236,7 +235,7 @@ def normalize_tensor(x, axes=[2], epsilon=1e-8, moments = None, splits = None):
     Return:
         tensor: nD image tensor normalized by channels
     """
-    
+
     # define a basic function to normalize a 3d tensor
     def normalize(x):
 #        shape = tf.shape(x).numpy()
@@ -253,7 +252,7 @@ def normalize_tensor(x, axes=[2], epsilon=1e-8, moments = None, splits = None):
         # normalize the input tensor
         normed = (x - mean)/tf.sqrt(variance + epsilon)
         return normed
-    
+
 
     # if splits are given, apply tensor normalization to each split
     if splits:
@@ -268,13 +267,13 @@ def normalize_tensor(x, axes=[2], epsilon=1e-8, moments = None, splits = None):
     else:
         x_normed = normalize(x)
 
-    return x_normed 
+    return x_normed
 
 def rescale_tensor(img, axes = [2], epsilon=1e-8, moments = None, splits = None):
     """
     Rescale incoming image patch to [0,1] based on min and max values
-    
-    Min, max can be calculated based on patch data by providing axes:      
+
+    Min, max can be calculated based on patch data by providing axes:
     To rescale each pixel use axes = [2]
     To rescale each channel use axes = [0, 1]
     To rescale globally use axes = [0, 1, 2]
@@ -282,7 +281,7 @@ def rescale_tensor(img, axes = [2], epsilon=1e-8, moments = None, splits = None)
     To rescale by global, or per-channel moments supply a list of [mean, variance] tuples.
     To rescale groups of channels separately, identify the size of each group. Groups of
     channels must be stacked contiguously and group sizes must sum to the total # of channels
-    
+
     Args:
         img (tensor): 3D (H,W,C) image tensor
         axes (list): axes along which to calculate min/max for rescaling
@@ -301,7 +300,7 @@ def rescale_tensor(img, axes = [2], epsilon=1e-8, moments = None, splits = None)
         scaled = (img - minimum)/((maximum - minimum) + epsilon)
 #        scaled = tf.divide(tf.subtract(img, minimum), tf.add(tf.subtract(maximum, minimum))
         return scaled
-    
+
     # if splits are given, apply tensor normalization to each split
     if splits:
         tensors = tf.split(img, splits, axis = 2)
@@ -310,7 +309,7 @@ def rescale_tensor(img, axes = [2], epsilon=1e-8, moments = None, splits = None)
         img_rescaled = tf.concat(rescaled, axis = 2)
     else:
         img_rescaled = rescale(img)
-        
+
     return img_rescaled
 
 #def parse_tfrecord(example_proto, ftDict):
@@ -318,12 +317,12 @@ def rescale_tensor(img, axes = [2], epsilon=1e-8, moments = None, splits = None)
 #    Read a serialized example into the structure defined by FEATURES_DICT.
 #    Args:
 #      example_proto: a serialized Example.
-#    Returns: 
+#    Returns:
 #      A dictionary of tensors, keyed by feature name.
 #    """
 #    return tf.io.parse_single_example(example_proto, ftDict)
 
-          
+
 def to_tuple(inputs, features, response, axes = [2], splits = None, one_hot = None, moments = None, **kwargs):
     """Function to convert a dictionary of tensors to a tuple of (inputs, outputs).
     Turn the tensors returned by parse_tfrecord into a stack in HWC shape.
@@ -336,7 +335,7 @@ def to_tuple(inputs, features, response, axes = [2], splits = None, one_hot = No
       one_hot (dict): key:value pairs for name of one-hot variable and desired one-hot depth
       splits (list): size(s) of groups of features to be kept together
       moments (list<tpl>): list of [mean, var] tuples for standardization
-    Returns: 
+    Returns:
       A dtuple of (inputs, outputs).
     """
 #    one_hot = kwargs.get('one_hot')
@@ -355,7 +354,7 @@ def to_tuple(inputs, features, response, axes = [2], splits = None, one_hot = No
         res = tf.squeeze(tf.one_hot(tf.cast(inputs.get(key), tf.uint8), depth = depth))
     else:
         res = tf.expand_dims(inputs.get(response), axis = 2)
-    
+
     # stack the augmented bands, optional one-hot tensors, and response variable
     if one_hot:
         featList = [inputs.get(key) for key in features if key not in one_hot.keys()]
@@ -368,16 +367,16 @@ def to_tuple(inputs, features, response, axes = [2], splits = None, one_hot = No
     bands = tf.transpose(tf.stack(featList, axis = 0), [1,2,0])
     bands = aug_tensor_color(bands)
     bands = rescale_tensor(bands, axes = axes, moments = moments, splits = splits)
-    
+
     if one_hot:
       hotStack = tf.concat(hotList, axis = 2)
       stacked = tf.concat([bands, hotStack, res], axis =2)
     else:
       stacked = tf.concat([bands, res], axis = 2)
-    
+
     # perform morphological augmentation
     stacked = aug_tensor_morph(stacked)
-    
+
     feats = stacked[:, :, :-res.shape[2]]
     labels = stacked[:, :, -res.shape[2]:]
     labels = tf.where(tf.greater(labels, 1.0), 1.0, labels)
@@ -395,16 +394,16 @@ def get_dataset(files, ftDict, features, response, axes = [2], splits = None, on
     one_hot (dict): key:value pairs for name of one-hot variable and desired one-hot depth
     splits (list): size(s) of groups of features to be kept together
     moments (list<tpl>): list of [mean, var] tuples for standardization
-  Returns: 
+  Returns:
     A tf.data.Dataset
   """
 
   def parse_tfrecord(example_proto):
       return tf.io.parse_single_example(example_proto, ftDict)
-  
+
   def tupelize(ftDict):
       return to_tuple(ftDict, features, response, axes, splits, one_hot, moments, **kwargs)
-  
+
   dataset = tf.data.TFRecordDataset(files, compression_type='GZIP')
   dataset = dataset.map(parse_tfrecord, num_parallel_calls=5)
   dataset = dataset.map(tupelize, num_parallel_calls=5)
@@ -422,7 +421,7 @@ def get_training_dataset(files, ftDict, features, response, buff, batch = 16, re
         buffer (int): buffer size for shuffle
         batch (int): batch size for training
         repeat (bool): should the dataset be repeated
-    Returns: 
+    Returns:
       A tf.data.Dataset of training data.
     """
     dataset = get_dataset(files, ftDict, features, response, axes, splits, one_hot, moments, **kwargs)
@@ -431,25 +430,25 @@ def get_training_dataset(files, ftDict, features, response, buff, batch = 16, re
     else:
         dataset = dataset.shuffle(buff).batch(batch)
     return dataset
-    
+
 def get_eval_dataset(files, ftDict, features, response, axes = [2], splits = None, one_hot = None, moments = None, **kwargs):
-	"""
+        """
     Get the preprocessed evaluation dataset
     Args:
         files (list): list of tfrecords to be used for evaluation
-    Returns: 
+    Returns:
       A tf.data.Dataset of evaluation data.
     """
 
-	dataset = get_dataset(files, ftDict, features, response, axes, splits, one_hot, moments, **kwargs)
-	dataset = dataset.batch(1)
-	return dataset
+        dataset = get_dataset(files, ftDict, features, response, axes, splits, one_hot, moments, **kwargs)
+        dataset = dataset.batch(1)
+        return dataset
 
 class UNETDataGenerator(tf.keras.utils.Sequence):
     """Generates data for Keras
     Sequence based data generator. Suitable for building data generator for training and prediction.
     """
-    def __init__(self, labelfiles = None, s2files = None, naipfiles = None, 
+    def __init__(self, labelfiles = None, s2files = None, naipfiles = None,
                  hagfiles = None, lidarfiles = None, lufiles = None,
                  demfiles = None, ssurgofiles = None,
                  to_fit=True, batch_size=32, dim=(256, 256),
@@ -507,10 +506,10 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         if self.shuffle == True:
             print('shuffling')
             np.random.shuffle(self.indexes)
-    
+
     @staticmethod
     def load_numpy_url(url):
-        local_file_loc = ""
+        local_file_loc = "/blob-mirror/wetlands"
         file_name = url.split("/")[-1]
         file_path = os.path.join(local_file_loc,file_name)
         if os.path.exists(file_path):
@@ -537,10 +536,11 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
           # creat a single (B, C, H, W) array per batch
           batch = np.stack(chw, axis = 0)
           assert np.isnan(batch).sum() < 1, 'nans in batch, skipping'
+          #print("MIN VALUE",np.min(batch))
           assert np.min(batch) > -5000, "Min value less than -5K, skipping"
           in_shape = batch.shape
           # in case our incoming data is of different size than we want, define a trim amount
-          trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2) 
+          trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2)
           # If necessary, trim data to (-1, dims[0], dims[1])
           array = batch[:,:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
           # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
@@ -549,7 +549,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         except AssertionError as msg:
           print(msg)
           return None
-    
+
     def _get_naip_data(self, indexes):
         files_temp = [self.naipfiles[k] for k in indexes]
         naip = self._get_x_data(files_temp)
@@ -559,9 +559,9 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
                 recolored = aug_array_color(rescaled)
                 return recolored
             return rescaled
-        # else:
-        #     return naip
-    
+        #else:
+            #return naip
+
     def _get_s2_data(self, indexes):
         files_temp = [self.s2files[k] for k in indexes]
         s2 = self._get_x_data(files_temp)
@@ -572,17 +572,17 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
                 return recolored
             else:
                 return rescaled
-        # else:
-        #     return s2
-    
+        #else:
+            #return s2
+
     def _get_lidar_data(self, indexes):
         files_temp = [self.lidarfiles[k] for k in indexes]
         lidar = self._get_x_data(files_temp)
         if type(lidar) == np.ndarray:
             rescaled = lidar/100
-            return rescaled  
-        # else:
-        #     return lidar 
+            return rescaled
+        #else:
+            #return lidar
 
     def _get_hag_data(self, indexes):
         files_temp = [self.hagfiles[k] for k in indexes]
@@ -590,24 +590,24 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         if type(hag) == np.ndarray:
             rescaled = hag/100
             return rescaled
-        # else:
-        #     return hag 
-           
+        #else:
+         #   return hag
+
     def _get_dem_data(self, indexes):
         files_temp = [self.demfiles[k] for k in indexes]
         dem = self._get_x_data(files_temp)
         if type(dem) == np.ndarray:
           rescaled = dem/2000.0 # we are going to use the min and max elevations across the chesapeake
           return rescaled
-        # else:
-        #   return dem
+        #else:
+         # return dem
 
     def _get_ssurgo_data(self, indexes):
         files_temp = [self.ssurgofiles[k] for k in indexes]
         ssurgo = self._get_x_data(files_temp)
         if type(ssurgo) == np.ndarray:
             return ssurgo
-      
+
     def _process_y(self, indexes):
         # get label files for current batch
         lc_files = [self.labelfiles[k] for k in indexes]
@@ -618,7 +618,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         # optionally reduce the number of classes
         if self.trans:
             int_labels = merge_classes(cond_array = int_labels, trans = self.trans, out_array = int_labels)
-        
+
         if self.lufiles:
             lu_files = [self.lufiles[k] for k in indexes]
             lu_arrays = [np.load(file) for file in lu_files]
@@ -627,7 +627,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
 
         # If necessary, trim data to (-1, dims[0], dims[1])
         in_shape = int_labels.shape
-        trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2) 
+        trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2)
         array = int_labels[:,:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
 
         # shift range of categorical labels from [1, n_classes] to [0, n_classes]
@@ -636,7 +636,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         one_hot = tf.one_hot(zeroed, self.n_classes)
         # one_hot = to_one_hot(zeroed, self.n_classes)
         return tf.squeeze(one_hot)
-        
+
     def __getitem__(self, index):
         """Generate one batch of data
 
@@ -726,7 +726,7 @@ class SiameseDataGenerator(UNETDataGenerator):
             binary = np.where(int_labels > 1, 1, int_labels)
             # If necessary, trim data to (-1, dims[0], dims[1])
             in_shape = binary.shape # -> (B, H, W)
-            trim = ((in_shape[1] - self.dim[0])//2, (in_shape[2] - self.dim[1])//2) 
+            trim = ((in_shape[1] - self.dim[0])//2, (in_shape[2] - self.dim[1])//2)
             array = binary[:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
 
             # add channel dimension (B, H, W) -> (B, H, W, C) expected by model
@@ -734,7 +734,7 @@ class SiameseDataGenerator(UNETDataGenerator):
             return reshaped
         except AssertionError:
             return None
-        
+
     def __getitem__(self, index):
         """Generate one batch of data
 
@@ -747,7 +747,7 @@ class SiameseDataGenerator(UNETDataGenerator):
         s2Data = self._get_s2_data(indexes)
 
         labels = self._process_y(indexes)
-        
+
         # perform morphological augmentation - expects a 3D (H, W, C) image array
         stacked = np.concatenate([s2Data, labels], axis = -1)
         morphed = aug_array_morph(stacked)
@@ -761,7 +761,7 @@ class SiameseDataGenerator(UNETDataGenerator):
             return [feats_b, feats_a], labels
         else:
             return [feats_b, feats_a]
-    
+
 
 class LSTMDataGenerator(tf.keras.utils.Sequence):
     """Generates data for Keras
@@ -813,12 +813,12 @@ class LSTMDataGenerator(tf.keras.utils.Sequence):
         """
         # Generate indexes of the batch
         indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
-        
+
         # Find list of IDs
         files_temp = [self.files[k] for k in indexes]
         # arrays come from PC in (T, C, H, W) format
         arrays = [np.load(file) for file in files_temp]
-        trim = ((arrays[0].shape[2] - self.dim[0])//2, (arrays[0].shape[3] - self.dim[1])//2) 
+        trim = ((arrays[0].shape[2] - self.dim[0])//2, (arrays[0].shape[3] - self.dim[1])//2)
         # TEMPORARY FIX: drop the last image to give us a sereis of 5
         array = [arr[0:self.n_timesteps,:,trim[0]:-trim[0],trim[1]:-trim[1]] for arr in arrays]
 
@@ -874,7 +874,7 @@ class LSTMAutoencoderGenerator(LSTMDataGenerator):
         """
         # Generate indexes of the batch
         indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
-        
+
         # Find list of IDs
         files_temp = [self.files[k] for k in indexes]
 
@@ -894,7 +894,7 @@ class LSTMAutoencoderGenerator(LSTMDataGenerator):
         reshaped = np.moveaxis(array, source = 2, destination = 4)
 
         normalized = normalize_timeseries(reshaped, axis = 1)
-        
+
         # harmonized = add_harmonic(normalized)
         if self.add_harmonics:
             # get start dates for each file
@@ -929,7 +929,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
                 ssurgofiles = None,
                 n_classes = 8,
                 to_fit=True, batch_size=32,
-                unet_dim=(320, 320, 4), lstm_dim = (6, 32, 32, 6), 
+                unet_dim=(320, 320, 4), lstm_dim = (6, 32, 32, 6),
                 lc_transitions = [(12,3), (11,3), (10,3), (9,8), (255, 0)],
                 lu_transitions = [(82,9), (84,10)],
                 shuffle=True):
@@ -949,7 +949,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
             True to return X and y, False to return X only
         batch_size: int
             batch size at each iteration
-        dim: tuple 
+        dim: tuple
             desired image H, W dimensions
         n_classes: int
             number of output masks
@@ -957,7 +957,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
             number of multi-channel images in temporal s2 data
         shuffle: bool
             True to shuffle label indexes after every epoch
-        
+
         Return
         ---
         tuple: three arrays containing batch of corresponding sentinel-2, naip, and label data
@@ -998,11 +998,11 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         self.indexes = np.arange(len(self.labelfiles))
         if self.shuffle == True:
             np.random.shuffle(self.indexes)
-    
+
     def __iter__(self):
        for item in (self[i] for i in range(len(self))):
-            yield item 
-    
+            yield item
+
     @staticmethod
     def load_numpy_url(url):
         local_file_loc = ""
@@ -1031,11 +1031,11 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         try:
             assert len(arrays) > 0
             assert all([x.shape == (self.lstm_dim[0], self.lstm_dim[3], self.lstm_dim[1], self.lstm_dim[2]) for x in arrays])
-        
+
             # creat a single (B, T, C, H, W) array
             batch = np.stack(arrays, axis = 0)
             # in case our incoming data is of different size than we want, define a trim amount
-            trim = ((batch.shape[3] - self.lstm_dim[1])//2, (batch.shape[4] - self.lstm_dim[2])//2) 
+            trim = ((batch.shape[3] - self.lstm_dim[1])//2, (batch.shape[4] - self.lstm_dim[2])//2)
 
             array = batch[:, 0:self.n_timesteps,:,trim[0]:self.lstm_dim[1]+trim[0],trim[1]:self.lstm_dim[2]+trim[1]]
 
@@ -1061,7 +1061,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
           batch = np.stack(chw, axis = 0)
           in_shape = batch.shape
           # in case our incoming data is of different size than we want, define a trim amount
-          trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2) 
+          trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2)
           # If necessary, trim data to (-1, dims[0], dims[1])
           array = batch[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
           # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
@@ -1084,7 +1084,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
                 return normalized
         else:
             return None
-    
+
     def _get_lidar_data(self, indexes):
         files_temp = [self.lidarfiles[k] for k in indexes]
         reshaped = self._get_unet_data(files_temp)
@@ -1093,7 +1093,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
           return normalized
         else:
           return None
-    
+
     def _get_dem_data(self, indexes):
         files_temp = [self.demfiles[k] for k in indexes]
         reshaped = self._get_unet_data(files_temp)
@@ -1128,7 +1128,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
             lc = np.stack(lc_arrays, axis = 0) #(B, C, H, W)
             int_labels = lc.astype(int)
 
-            # optionally reduce the number of classes 
+            # optionally reduce the number of classes
             if self.lc_trans:
               merged_labels = merge_classes(cond_array = int_labels, trans = self.trans, out_array = int_labels)
             else:
@@ -1140,7 +1140,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
                 lu_arrays = self._load_numpy_data(lu_files)
                 try:
                     assert len(lu_arrays) == self.batch_size
-                    assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lu_arrays])                
+                    assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lu_arrays])
                     lu = np.stack(lu_arrays, axis = 0) #(B, C, H, W)
                     y = merge_classes(cond_array = lu, trans = [(82,9), (84,10)], out_array = merged_labels)
                 except AssertionError:
@@ -1150,7 +1150,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
 
             # If necessary, trim data to (-1, dims[0], dims[1])
             in_shape = y.shape
-            trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2) 
+            trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2)
             array = y[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
 
             # shift range of categorical labels from [1, n_classes] to [0, n_classes]
@@ -1170,7 +1170,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         :return: X and y when fitting. X only when predicting
         """
         # Generate indexes of the batch
-        
+
         indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
 
         unetDatasets = []
