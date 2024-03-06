@@ -509,17 +509,11 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
 
     @staticmethod
     def load_numpy_url(url):
-        local_file_loc = "/blob-mirror/wetlands"
-        file_name = url.split("/")[-1]
-        file_path = os.path.join(local_file_loc,file_name)
-        if os.path.exists(file_path):
-            data = np.load(file_path)
-        else:
-            response = requests.get(url)
-            response.raise_for_status()
-            data = np.load(io.BytesIO(response.content))
-            np.save(file_path,data)
-        return(data)
+
+        if os.path.exists(url):
+            data = np.load(url)
+
+            return(data)
 
     def _load_numpy_data(self, files_temp):
         arrays = [UNETDataGenerator.load_numpy_url(f) for f in files_temp]
@@ -1005,17 +999,11 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
 
     @staticmethod
     def load_numpy_url(url):
-        local_file_loc = ""
-        file_name = url.split("/")[-1]
-        file_path = os.path.join(local_file_loc,file_name)
-        if os.path.exists(file_path):
-            data = np.load(file_path)
-        else:
-            response = requests.get(url)
-            response.raise_for_status()
-            data = np.load(io.BytesIO(response.content))
-            np.save(file_path,data)
-        return(data)
+        
+        if os.path.exists(url):
+            data = np.load(url)
+
+            return(data)
 
     def _load_numpy_data(self, files_temp):
         arrays = [HybridDataGenerator.load_numpy_url(f) for f in files_temp]
