@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Created on Wed Jun 29 15:07:52 2022
 
@@ -18,6 +17,8 @@ import numpy as np
 from matplotlib.pyplot import imsave
 import warnings
 import random
+import gdal
+rio.Env(CHECK_DISK_FREE_SPACE=False)
 
 def generate_chip_indices(arr, buff = 128, kernel = 256):
   """
@@ -131,8 +132,9 @@ def get_geo_transform(raster_src):
     """
 
     if isinstance(raster_src, str):
-      with rio.open(raster_src) as src:
-        affine_obj = src.transform
+        with rio.Env(CHECK_DISK_FREE_SPACE=False):
+            with rio.open(raster_src) as src:
+                affine_obj = src.transform
     elif isinstance(raster_src, rio.DatasetReader):
         affine_obj = raster_src.transform
 
@@ -383,18 +385,19 @@ def numpy_to_raster(arr: np.ndarray, mixer: dict, out_file: str, dtype:str):
         'driver':'GTiff',
         'width':mixer['cols'],
         'height':mixer['rows'],
-        'count':C,
+        'count':1,
         'dtype':dtype,
         'transform':rio.Affine(*mixer['transform'][0:6]),
         'crs':mixer['crs'],
         'nodata':255
     }
-    band_list = list(range(1,C+1))
+    #band_list = list(range(1,C+1))
     temp_file = out_file.replace(".tif","_temp.tif")
-
-    with rio.open(temp_file, mode = 'w', **meta) as src:
-        src.write(arr, band_list)
-        src.close()
+    with rio.Env(CHECK_DISK_FREE_SPACE=False):
+        with rio.open(temp_file, mode = 'w', **meta) as src:
+            #src.write(arr, band_list)
+            src.write(arr, 1)
+            src.close()
 
     ds = gdal.Open(temp_file)
     

@@ -64,7 +64,7 @@ def match_files(urls, vars, delim:str = '_', parts:slice = slice(3,5), subset: s
     dict: key, value pairs for each valid key in vars. variable names are key (e.g. 'naip') and values are corresponding list of files
     """
 
-    print(len(subset))
+    #print(len(subset))
     vars_copy = copy.deepcopy(vars)
     files_dic = {key:[url for url in urls if f'/{key}/' in url] for key in vars.keys() if vars[key]['files'] is not None}
     ids = [set([get_file_id(f, delim, parts) for f in files]) for files in files_dic.values()] # list of sets per var
@@ -482,7 +482,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         self.splits = splits
         self.moments = moments
         self.trans = translations
-        self.indexes = np.arange(len(self.labelfiles))
+        self.indexes = np.arange(len(self.naipfiles))
         self.on_epoch_end()
 
         # do an initial shuffle for cases where the generator is called fresh at the start of each epoch
@@ -512,6 +512,10 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
 
         if os.path.exists(url):
             data = np.load(url)
+        else:
+            response = requests.get(url)
+            response.raise_for_status()
+            data = np.load(io.BytesIO(response.content))
 
             return(data)
 
