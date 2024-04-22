@@ -229,14 +229,14 @@ def get_s2_stac(dates, aoi, cloud_thresh = 10):
     clipped = s2projected.rio.clip(geometries = [aoi], crs = 4326)
     return clipped
 
-def get_ssurgo_stac(aoi, epsg)-> np.ndarray:
+def get_ssurgo_stac(aoi, crs)-> np.ndarray:
     """Sample ssurgo data in raster format
     
     Parameters
     ---
     catalog: pystac_client.client.Client
         planetary computer catalog
-    epsg: int
+    crs: CRS
         cooridnate reference system epsg code to reproject ssurgo data to
     
     Returns
@@ -256,15 +256,15 @@ def get_ssurgo_stac(aoi, epsg)-> np.ndarray:
     surgo = surgoitems[0]
 
     surgowkt = surgo['properties']['proj:wkt2']
-    if epsg:
-        surgoCrs = epsg
+    if crs:
+        surgoEPSG = crs.to_epsg()
     else:
-        surgoCrs = CRS.from_wkt(surgowkt)
+        surgoEPSG = CRS.from_wkt(surgowkt)
 
     # surgoepsg = surgo['properties']['proj:epsg']
     surgoStac = stackstac.stack(
             surgoitems,
-            epsg = surgoCrs,
+            epsg = surgoEPSG,
             assets=['mukey'])
 
     surgoTransform = surgoStac.attrs['transform']
@@ -272,7 +272,7 @@ def get_ssurgo_stac(aoi, epsg)-> np.ndarray:
     print('resolution', surgores)
     
     temporal = surgoStac.median(dim = 'time')
-    return temporal, surgoCrs
+    return temporal, surgoEPSG
 
 def get_pc_imagery(aoi, dates, crs):
     """Get S2 imagery from Planetary Computer. REQUIRES a valid API token be added to the os environment
