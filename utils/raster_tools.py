@@ -17,7 +17,7 @@ import numpy as np
 from matplotlib.pyplot import imsave
 import warnings
 import random
-import gdal
+from osgeo import gdal
 rio.Env(CHECK_DISK_FREE_SPACE=False)
 
 def generate_chip_indices(arr, buff = 128, kernel = 256):
@@ -27,7 +27,7 @@ def generate_chip_indices(arr, buff = 128, kernel = 256):
     arr: np.ndarray
       3D array (H, W, C) for which indices should be generated
     buff: int
-      size of pixels to be trimmed from chips
+      size of pixels to be trimmed from each side of chip
     kernel: int
       size of contiguous image chips
   Return
@@ -35,11 +35,11 @@ def generate_chip_indices(arr, buff = 128, kernel = 256):
     list::np.ndarray: list containing (y,x) index of chips upper left corner
   """
   H, W, C = arr.shape
-  side = buff + kernel
-  x_buff = y_buff = buff//2
+  side = (2*buff) + kernel
+  x_buff = y_buff = buff
   
-  y_indices = list(range(y_buff, H - side, kernel))
-  x_indices = list(range(x_buff, W - side, kernel))
+  y_indices = list(range(y_buff, H - (kernel+buff), kernel))
+  x_indices = list(range(x_buff, W - (kernel+buff), kernel))
 
   indices = [(y_index, x_index) for y_index in y_indices for x_index in x_indices]
   return indices
