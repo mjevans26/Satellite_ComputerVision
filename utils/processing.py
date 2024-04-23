@@ -67,8 +67,11 @@ def match_files(urls, vars, delim:str = '_', parts:slice = slice(3,5), subset: s
     #print(len(subset))
     vars_copy = copy.deepcopy(vars)
     files_dic = {key:[url for url in urls if f'/{key}/' in url] for key in vars.keys() if vars[key]['files'] is not None}
+    print(files_dic)
     ids = [set([get_file_id(f, delim, parts) for f in files]) for files in files_dic.values()] # list of sets per var
+    print(ids)
     intersection = set.intersection(*ids)
+    print(intersection)
     if subset:
         intx = intersection.intersection(subset)
     else:
@@ -523,31 +526,43 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         arrays = [UNETDataGenerator.load_numpy_url(f) for f in files_temp]
         return(arrays)
 
-    def _get_x_data(self, files_temp):
+    def _get_x_data(self, files_temp, add_nan_mask = False):
         # arrays come from PC in (C, H, W) format
         arrays = self._load_numpy_data(files_temp)
         try:
-          assert len(arrays) > 0
-          assert all([len(x.shape) == 3 for x in arrays]), 'all arrays not 3D'
-          # ensure all arrays are C, H, W to start
-          chw = [np.moveaxis(x, source = -1, destination = 0) if x.shape[-1] < x.shape[0] else x for x in arrays]
-          # creat a single (B, C, H, W) array per batch
-          batch = np.stack(chw, axis = 0)
-          assert np.isnan(batch).sum() < 1, 'nans in batch, skipping'
-          #print("MIN VALUE",np.min(batch))
-          assert np.min(batch) > -5000, "Min value less than -5K, skipping"
-          in_shape = batch.shape
-          # in case our incoming data is of different size than we want, define a trim amount
-          trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2)
-          # If necessary, trim data to (-1, dims[0], dims[1])
-          array = batch[:,:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
-          # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
-          reshaped = np.moveaxis(array, source = 1, destination = 3)
-          return reshaped
+            assert len(arrays) > 0
+            assert all([len(x.shape) == 3 for x in arrays]), 'all arrays not 3D'
+            # ensure all arrays are C, H, W to start
+            chw = [np.moveaxis(x, source = -1, destination = 0) if x.shape[-1] < x.shape[0] else x for x in arrays]
+
+            if add_nan_mask == True:
+                for cur_array in chw:
+                    if np.isnan(cur_array).sum() > 1:
+                        print("NANS FOUND")
+                    mask = np.zeros([cur_array.shape[1], cur_array.shape[2]])
+
+                    for arr_2d in cur_array:
+                        nans = np.isnan(arr_2d)
+                        mask[nans==True] = 1
+                        # arr_2d[nans==True] = np.random.uniform()
+                        arr_2d[np.isnan(arr_2d)] = np.random.randn(len(arr_2d[np.isnan(arr_2d)]))
+                    print("AFTER FIX:",np.isnan(cur_array).sum())
+                    #cur_array.append(mask)
+                    cur_array = np.vstack((cur_array, mask[None,:,:]))
+
+            batch = np.stack(chw, axis = 0)
+            assert np.isnan(batch).sum() < 1, 'nans in batch, skipping'
+            in_shape = batch.shape
+            # in case our incoming data is of different size than we want, define a trim amount
+            trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2)
+            # If necessary, trim data to (-1, dims[0], dims[1])
+            array = batch[:,:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
+            # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
+            reshaped = np.moveaxis(array, source = 1, destination = 3)
+            return reshaped
         except AssertionError as msg:
           print(msg)
           return None
-
     def _get_naip_data(self, indexes):
         files_temp = [self.naipfiles[k] for k in indexes]
         naip = self._get_x_data(files_temp)
@@ -575,7 +590,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
 
     def _get_lidar_data(self, indexes):
         files_temp = [self.lidarfiles[k] for k in indexes]
-        lidar = self._get_x_data(files_temp)
+        lidar = self._get_x_data(files_temp,True)
         if type(lidar) == np.ndarray:
             rescaled = lidar/100
             return rescaled
@@ -593,7 +608,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
 
     def _get_dem_data(self, indexes):
         files_temp = [self.demfiles[k] for k in indexes]
-        dem = self._get_x_data(files_temp)
+        dem = self._get_x_data(files_temp,True)
         if type(dem) == np.ndarray:
           rescaled = dem/2000.0 # we are going to use the min and max elevations across the chesapeake
           return rescaled
@@ -652,6 +667,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
 
         if self.naipfiles:
             naipData = self._get_naip_data(indexes)
+            print("appending Naip data",type(naipData))
             datasets.append(naipData)
 
         if self.hagfiles:
@@ -661,11 +677,13 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         if self.demfiles:
             demData = self._get_dem_data(indexes)
             # print('dem', demData.shape)
+            print("appening DEM data",type(demData))
             datasets.append(demData)
 
         if self.ssurgofiles:
             ssurgoData = self._get_ssurgo_data(indexes)
-            # print('ssurgo', ssurgoData.shape)
+            # print('ssurgo', ssurgoData.shape
+            print("appending ssurgoData",type(ssurgoData))
             datasets.append(ssurgoData)
 
         if self.lidarfiles:
@@ -1003,7 +1021,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
 
     @staticmethod
     def load_numpy_url(url):
-        
+
         if os.path.exists(url):
             data = np.load(url)
 
