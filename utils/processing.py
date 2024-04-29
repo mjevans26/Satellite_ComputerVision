@@ -520,7 +520,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             response.raise_for_status()
             data = np.load(io.BytesIO(response.content))
 
-            return(data)
+        return(data)
 
     def _load_numpy_data(self, files_temp):
         arrays = [UNETDataGenerator.load_numpy_url(f) for f in files_temp]
