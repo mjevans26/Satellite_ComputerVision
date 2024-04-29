@@ -592,7 +592,8 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         files_temp = [self.lidarfiles[k] for k in indexes]
         lidar = self._get_x_data(files_temp,True)
         if type(lidar) == np.ndarray:
-            rescaled = lidar/100
+            rescaled = lidar
+            rescaled[:,:,:,1] = rescaled[:,:,:,1]/100
             return rescaled
         #else:
             #return lidar
@@ -610,7 +611,8 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         files_temp = [self.demfiles[k] for k in indexes]
         dem = self._get_x_data(files_temp,True)
         if type(dem) == np.ndarray:
-          rescaled = dem/2000.0 # we are going to use the min and max elevations across the chesapeake
+          rescaled = dem # we are going to use the min and max elevations across the chesapeake
+          rescaled[:,:,:,1] = rescaled[:,:,:,1]/2000.0
           return rescaled
         #else:
          # return dem
