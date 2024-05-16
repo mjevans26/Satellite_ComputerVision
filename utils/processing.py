@@ -67,8 +67,11 @@ def match_files(urls, vars, delim:str = '_', parts:slice = slice(3,5), subset: s
     #print(len(subset))
     vars_copy = copy.deepcopy(vars)
     files_dic = {key:[url for url in urls if f'/{key}/' in url] for key in vars.keys() if vars[key]['files'] is not None}
+    print(files_dic)
     ids = [set([get_file_id(f, delim, parts) for f in files]) for files in files_dic.values()] # list of sets per var
+    print(ids)
     intersection = set.intersection(*ids)
+    print(intersection)
     if subset:
         intx = intersection.intersection(subset)
     else:
@@ -517,86 +520,117 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             response.raise_for_status()
             data = np.load(io.BytesIO(response.content))
 
-            return(data)
+        return(data)
 
     def _load_numpy_data(self, files_temp):
         arrays = [UNETDataGenerator.load_numpy_url(f) for f in files_temp]
         return(arrays)
 
-    def _get_x_data(self, files_temp):
+    def _get_x_data(self, files_temp, add_nan_mask = False,rescale_val=False):
         # arrays come from PC in (C, H, W) format
         arrays = self._load_numpy_data(files_temp)
         try:
-          assert len(arrays) > 0
-          assert all([len(x.shape) == 3 for x in arrays]), 'all arrays not 3D'
-          # ensure all arrays are C, H, W to start
-          chw = [np.moveaxis(x, source = -1, destination = 0) if x.shape[-1] < x.shape[0] else x for x in arrays]
-          # creat a single (B, C, H, W) array per batch
-          batch = np.stack(chw, axis = 0)
-          assert np.isnan(batch).sum() < 1, 'nans in batch, skipping'
-          #print("MIN VALUE",np.min(batch))
-          assert np.min(batch) > -5000, "Min value less than -5K, skipping"
-          in_shape = batch.shape
-          # in case our incoming data is of different size than we want, define a trim amount
-          trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2)
-          # If necessary, trim data to (-1, dims[0], dims[1])
-          array = batch[:,:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
-          # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
-          reshaped = np.moveaxis(array, source = 1, destination = 3)
-          return reshaped
+            assert len(arrays) > 0
+            assert all([len(x.shape) == 3 for x in arrays]), 'all arrays not 3D'
+            # ensure all arrays are C, H, W to start
+            chw = [np.moveaxis(x, source = -1, destination = 0) if x.shape[-1] < x.shape[0] else x for x in arrays]
+            if rescale_val is not False:
+                chw = [x/rescale_val for x in chw]
+            if add_nan_mask == True:
+                chw_new = []
+                for cur_array in chw:
+                    if np.isnan(cur_array).sum() > 1:
+                        print("NANS FOUND")
+
+                    mask_channel = np.zeros([cur_array.shape[1], cur_array.shape[2]])
+                    # Create a random array to be used to replace the original data
+                    for arr_2d in cur_array:
+                        nans = np.isnan(arr_2d)
+                        bads = arr_2d < -5000
+                        mask_channel[nans==True] = 1
+                        mask_channel[bads==True] = 1
+                        arr_2d[mask_channel==1] = np.random.randn((mask_channel==1).sum())
+                        # arr_2d[nans==True] = np.random.uniform()
+                        #arr_2d[np.isnan(arr_2d)] = np.random.randn(len(arr_2d[np.isnan(arr_2d)]))
+                    #print("AFTER FIX:",np.isnan(cur_array).sum())
+                    #cur_array = np.vstack((cur_array, mask[None,:,:]))
+
+
+                    """randarr = np.random.uniform(size=cur_array.shape)*cur_array.max()
+                    # Build a mask layer to use in the replacement
+                    n_cols = cur_array.shape[2]
+                    n_rows = cur_array.shape[1]
+                    mask_channel = np.ones((n_rows, n_cols), dtype=np.int8)
+                    np.any(cur_array == np.nan, axis=0, out=mask_channel)
+                    # Replace the values in any of the channels where the mask_channel is 0 with the values from the random array
+                    cur_array[:, mask_channel == 1] = randarr[:, mask_channel == 1]
+
+                    cur_array[:, mask_channel == 1] = randarr[:, mask_channel == 1] """
+                    cur_array = np.append(cur_array, mask_channel[np.newaxis, :, :], axis=0)
+                    #print("AFTER:",np.isnan(cur_array).sum())
+                    chw_new.append(cur_array)
+                chw = chw_new
+            batch = np.stack(chw, axis = 0)
+            assert np.isnan(batch).sum() < 1, 'nans in batch, skipping'
+            in_shape = batch.shape
+            # in case our incoming data is of different size than we want, define a trim amount
+            trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2)
+            # If necessary, trim data to (-1, dims[0], dims[1])
+            array = batch[:,:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
+            # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
+
+            reshaped = np.moveaxis(array, source = 1, destination = 3)
+
+            return reshaped
         except AssertionError as msg:
           print(msg)
           return None
-
     def _get_naip_data(self, indexes):
         files_temp = [self.naipfiles[k] for k in indexes]
-        naip = self._get_x_data(files_temp)
+        naip = self._get_x_data(files_temp,255.0)
         if type(naip) == np.ndarray:
-            rescaled = naip/255.0
+
             if self.to_fit:
-                recolored = aug_array_color(rescaled)
+                recolored = aug_array_color(naip)
                 return recolored
-            return rescaled
+            return naip
         #else:
             #return naip
 
     def _get_s2_data(self, indexes):
         files_temp = [self.s2files[k] for k in indexes]
-        s2 = self._get_x_data(files_temp)
+        s2 = self._get_x_data(files_temp,rescale_val=10000.0)
         if type(s2) == np.ndarray:
-            rescaled = s2/10000.0
+
             if self.to_fit:
-                recolored = aug_array_color(rescaled)
+                recolored = aug_array_color(s2)
                 return recolored
             else:
-                return rescaled
+                return s2
         #else:
             #return s2
 
     def _get_lidar_data(self, indexes):
         files_temp = [self.lidarfiles[k] for k in indexes]
-        lidar = self._get_x_data(files_temp)
+        lidar = self._get_x_data(files_temp,True,rescale_val=100)
         if type(lidar) == np.ndarray:
-            rescaled = lidar/100
-            return rescaled
-        #else:
-            #return lidar
+            return lidar
 
     def _get_hag_data(self, indexes):
         files_temp = [self.hagfiles[k] for k in indexes]
-        hag = self._get_x_data(files_temp)
+        hag = self._get_x_data(files_temp,rescale_val=100)
         if type(hag) == np.ndarray:
-            rescaled = hag/100
-            return rescaled
+
+            return hag
         #else:
          #   return hag
 
     def _get_dem_data(self, indexes):
         files_temp = [self.demfiles[k] for k in indexes]
-        dem = self._get_x_data(files_temp)
+        dem = self._get_x_data(files_temp,True,rescale_val=2000.0)
         if type(dem) == np.ndarray:
-          rescaled = dem/2000.0 # we are going to use the min and max elevations across the chesapeake
-          return rescaled
+           # we are going to use the min and max elevations across the chesapeake
+          return dem
         #else:
          # return dem
 
@@ -611,6 +645,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         lc_files = [self.labelfiles[k] for k in indexes]
         lc_arrays = self._load_numpy_data(lc_files)
         lc = np.stack(lc_arrays, axis = 0) #(B, C, H, W)
+
         int_labels = lc.astype(int)
 
         # optionally reduce the number of classes
@@ -652,6 +687,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
 
         if self.naipfiles:
             naipData = self._get_naip_data(indexes)
+            print("appending Naip data",type(naipData))
             datasets.append(naipData)
 
         if self.hagfiles:
@@ -661,11 +697,13 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         if self.demfiles:
             demData = self._get_dem_data(indexes)
             # print('dem', demData.shape)
+            print("appening DEM data",type(demData))
             datasets.append(demData)
 
         if self.ssurgofiles:
             ssurgoData = self._get_ssurgo_data(indexes)
-            # print('ssurgo', ssurgoData.shape)
+            # print('ssurgo', ssurgoData.shape
+            print("appending ssurgoData",type(ssurgoData))
             datasets.append(ssurgoData)
 
         if self.lidarfiles:
@@ -822,10 +860,8 @@ class LSTMDataGenerator(tf.keras.utils.Sequence):
 
         # creat a single (B, T, C, H, W) array
         batch = np.stack(array, axis = 0)
-        print('batch shape', batch.shape)
         # rearrange arrays from (B, T, C, H, W) -> (B, T, H, W, C) expected by model
         reshaped = np.moveaxis(batch, source = 2, destination = 4)
-        print('reshaped shape', reshaped.shape)
         normalized = normalize_timeseries(reshaped, axis = 1)
         # harmonized = add_harmonic(normalized)
         if self.to_fit:
@@ -1003,7 +1039,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
 
     @staticmethod
     def load_numpy_url(url):
-        
+
         if os.path.exists(url):
             data = np.load(url)
 

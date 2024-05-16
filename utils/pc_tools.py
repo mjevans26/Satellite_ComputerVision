@@ -229,19 +229,15 @@ def get_s2_stac(dates, aoi, cloud_thresh = 10):
     clipped = s2projected.rio.clip(geometries = [aoi], crs = 4326)
     return clipped
 
-def get_ssurgo_stac(aoi)-> np.ndarray:
+def get_ssurgo_stac(aoi, crs)-> np.ndarray:
     """Sample ssurgo data in raster format
     
     Parameters
     ---
     catalog: pystac_client.client.Client
         planetary computer catalog
-    aoi: shapely.geometry.Polygon
-        geometry to filter ssurgo data via intersection
-    point: geopandas.geoseries.GeoSeries
-        point at which to sample data
-    window_size: int
-        size in METERS of each side of the chip to be sampled
+    crs: CRS
+        cooridnate reference system epsg code to reproject ssurgo data to
     
     Returns
     ---
@@ -260,12 +256,15 @@ def get_ssurgo_stac(aoi)-> np.ndarray:
     surgo = surgoitems[0]
 
     surgowkt = surgo['properties']['proj:wkt2']
-    surgoCrs = CRS.from_wkt(surgowkt)
+    if crs:
+        surgoEPSG = crs.to_epsg()
+    else:
+        surgoEPSG = CRS.from_wkt(surgowkt)
 
     # surgoepsg = surgo['properties']['proj:epsg']
     surgoStac = stackstac.stack(
             surgoitems,
-            epsg = surgoCrs,
+            epsg = surgoEPSG,
             assets=['mukey'])
 
     surgoTransform = surgoStac.attrs['transform']
@@ -273,7 +272,7 @@ def get_ssurgo_stac(aoi)-> np.ndarray:
     print('resolution', surgores)
     
     temporal = surgoStac.median(dim = 'time')
-    return temporal, surgoCrs
+    return temporal, surgoEPSG
 
 def get_pc_imagery(aoi, dates, crs):
     """Get S2 imagery from Planetary Computer. REQUIRES a valid API token be added to the os environment
