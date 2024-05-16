@@ -17,7 +17,7 @@ import numpy as np
 from matplotlib.pyplot import imsave
 import warnings
 import random
-import gdal
+from osgeo import gdal
 rio.Env(CHECK_DISK_FREE_SPACE=False)
 
 def generate_chip_indices(arr, buff = 128, kernel = 256):
