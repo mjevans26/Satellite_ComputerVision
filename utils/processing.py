@@ -587,7 +587,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
           return None
     def _get_naip_data(self, indexes):
         files_temp = [self.naipfiles[k] for k in indexes]
-        naip = self._get_x_data(files_temp,255.0)
+        naip = self._get_x_data(files_temp,False,rescale_val = 255.0)
         if type(naip) == np.ndarray:
 
             if self.to_fit:
