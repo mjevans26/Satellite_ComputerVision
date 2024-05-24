@@ -530,7 +530,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         arrays = [UNETDataGenerator.load_numpy_url(f) for f in files_temp]
         return(arrays)
 
-    def _get_unet_data(self, files_temp, add_nan_mask = False,rescale_val=False):
+    def _get_unet_data(self, files_temp, add_nan_mask = False,rescale_val=1.0):
         # arrays come from PC in (C, H, W) format
         arrays = self._load_numpy_data(files_temp)
         try:
@@ -538,44 +538,8 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             assert all([len(x.shape) == 3 for x in arrays]), 'all arrays not 3D'
             # ensure all arrays are C, H, W to start
             chw = [np.moveaxis(x, source = -1, destination = 0) if x.shape[-1] < x.shape[0] else x for x in arrays]
-            if rescale_val is not False:
-                chw = [x/rescale_val for x in chw]
-            if add_nan_mask == True:
-                chw_new = []
-                for cur_array in chw:
-                    if np.isnan(cur_array).sum() > 1:
-                        print("NANS FOUND")
-
-                    mask_channel = np.zeros([cur_array.shape[1], cur_array.shape[2]])
-                    # Create a random array to be used to replace the original data
-                    for arr_2d in cur_array:
-                        nans = np.isnan(arr_2d)
-                        bads = arr_2d < -5000
-                        mask_channel[nans==True] = 1
-                        mask_channel[bads==True] = 1
-                        arr_2d[mask_channel==1] = np.random.randn((mask_channel==1).sum())
-                        # arr_2d[nans==True] = np.random.uniform()
-                        #arr_2d[np.isnan(arr_2d)] = np.random.randn(len(arr_2d[np.isnan(arr_2d)]))
-                    #print("AFTER FIX:",np.isnan(cur_array).sum())
-                    #cur_array = np.vstack((cur_array, mask[None,:,:]))
-
-
-                    """randarr = np.random.uniform(size=cur_array.shape)*cur_array.max()
-                    # Build a mask layer to use in the replacement
-                    n_cols = cur_array.shape[2]
-                    n_rows = cur_array.shape[1]
-                    mask_channel = np.ones((n_rows, n_cols), dtype=np.int8)
-                    np.any(cur_array == np.nan, axis=0, out=mask_channel)
-                    # Replace the values in any of the channels where the mask_channel is 0 with the values from the random array
-                    cur_array[:, mask_channel == 1] = randarr[:, mask_channel == 1]
-
-                    cur_array[:, mask_channel == 1] = randarr[:, mask_channel == 1] """
-                    cur_array = np.append(cur_array, mask_channel[np.newaxis, :, :], axis=0)
-                    #print("AFTER:",np.isnan(cur_array).sum())
-                    chw_new.append(cur_array)
-                chw = chw_new
-            batch = np.stack(chw, axis = 0)
-            assert np.isnan(batch).sum() < 1, 'nans in batch, skipping'
+            batch = np.stack(chw, axis = 0)/rescale_val
+            
             in_shape = batch.shape
             # in case our incoming data is of different size than we want, define a trim amount
             trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2)
@@ -584,14 +548,25 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
 
             reshaped = np.moveaxis(array, source = 1, destination = 3)
-
-            return reshaped
+            nans = np.isnan(reshaped)
+            if add_nan_mask:
+                mask = np.ones(shape = reshaped.shape) # create a mask with all valid pixels by default
+                mask[nans] = 0 # inject zeros into mask at invalid pixels
+                mask[reshaped < -5000] = 0
+                reduced_mask = mask.min(axis = -1, keepdims = True) # reduce mask along channels -> (B, C, H, 1)
+                reshaped[nans] = np.random.random(nans.sum()) # replace nan values with random val from [0,1)
+                masked = np.concatenate([reshaped, reduced_mask], axis = -1) # add mask to batch as additional channel
+                return masked
+            else:
+                assert np.isnan(reshaped).sum() < 1, 'nans in batch, skipping'
+                return reshaped
         except AssertionError as msg:
           print(msg)
           return None
+        
     def _get_naip_data(self, indexes):
         files_temp = [self.naipfiles[k] for k in indexes]
-        naip = self._get_unet_data(files_temp,rescale_val=255.0)
+        naip = self._get_unet_data(files_temp,add_nan_mask = False, rescale_val=255.0)
         if type(naip) == np.ndarray:
 
             if self.to_fit:
@@ -603,7 +578,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
 
     def _get_s2_data(self, indexes):
         files_temp = [self.s2files[k] for k in indexes]
-        s2 = self._get_unet_data(files_temp,rescale_val=10000.0)
+        s2 = self._get_unet_data(files_temp,add_nan_mask = False, rescale_val=10000.0)
         if type(s2) == np.ndarray:
 
             if self.to_fit:
@@ -1023,7 +998,7 @@ class HybridDataGenerator(UNETDataGenerator):
 
             # rearrange arrays from (B, T, C, H, W) -> (B, T, H, W, C) expected by model
             reshaped = np.moveaxis(array, source = 2, destination = 4)
-            normalized = normalize_timeseries(reshaped, axis = 1)
+            normalized = normalize_timeseries(reshaped, maxval = 10000, axis = 1)
             if self.to_fit:
                 recolored = aug_array_color(normalized)
             else:
