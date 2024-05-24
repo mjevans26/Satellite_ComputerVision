@@ -1078,7 +1078,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
         except AssertionError:
             return None
 
-    def _get_unet_data(self, files_temp):
+    def _get_unet_data(self, files_temp, rescale_val = 1.0, add_nan_mask = False):
         arrays = self._load_numpy_data(files_temp)
         try:
           assert len(arrays) > 0
@@ -1086,7 +1086,7 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
           # ensure all arrays are C, H, W to start
           chw = [np.moveaxis(x, source = -1, destination = 0) if x.shape[-1] < x.shape[0] else x for x in arrays]
           # creat a single (B, C, H, W) array per batch
-          batch = np.stack(chw, axis = 0)
+          batch = np.stack(chw, axis = 0)/rescale_val
           in_shape = batch.shape
           # in case our incoming data is of different size than we want, define a trim amount
           trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2)
@@ -1094,6 +1094,15 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
           array = batch[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
           # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
           reshaped = np.moveaxis(array, source = 1, destination = 3)
+
+        #   if add_nan_mask:
+        #       nans = np.isnan(reshaped)
+        #       if nans.sum() > 0: # check for nan values
+        #           print("NANS FOUND")
+        #           mask = np.ones(reshaped.shape)
+        #           mask[nans] = 0
+        #           mask.min(axis = -1) # if a pixel in any band is nan mask
+
           return reshaped
         except AssertionError as msg:
           print(msg)
@@ -1102,41 +1111,37 @@ class HybridDataGenerator(tf.keras.utils.Sequence):
     def _get_naip_data(self, indexes):
         # Find list of IDs
         files_temp = [self.naipfiles[k] for k in indexes]
-        reshaped = self._get_unet_data(files_temp)
+        reshaped = self._get_unet_data(files_temp, rescale_val = 255.0)
         if type(reshaped) == np.ndarray:
-            normalized = reshaped/255.0
             if self.to_fit:
-                recolored = aug_array_color(normalized)
+                recolored = aug_array_color(reshaped)
                 return recolored
             else:
-                return normalized
+                return reshaped
         else:
             return None
 
     def _get_lidar_data(self, indexes):
         files_temp = [self.lidarfiles[k] for k in indexes]
-        reshaped = self._get_unet_data(files_temp)
+        reshaped = self._get_unet_data(files_temp, rescale_val = 100.0)
         if type(reshaped) == np.ndarray:
-          normalized = reshaped/100.0
-          return normalized
+          return reshaped
         else:
           return None
 
     def _get_dem_data(self, indexes):
         files_temp = [self.demfiles[k] for k in indexes]
-        reshaped = self._get_unet_data(files_temp)
+        reshaped = self._get_unet_data(files_temp, rescale_val = 2000.0)
         if type(reshaped) == np.ndarray:
-          normalized = reshaped/2000.0
-          return normalized
+          return reshaped
         else:
           return None
 
     def _get_hag_data(self, indexes):
         files_temp = [self.hagfiles[k] for k in indexes]
-        reshaped = self._get_unet_data(files_temp)
+        reshaped = self._get_unet_data(files_temp, rescale_val = 100.0)
         if type(reshaped) == np.ndarray:
-          normalized = reshaped/100.0
-          return normalized
+          return reshaped
         else:
           return None
 
