@@ -382,10 +382,13 @@ def get_unet_model(nclasses, nchannels, filters = [32, 64, 128, 256, 512], facto
     if bias is not None:
         bias = tf.keras.initializers.Constant(bias)
     inputs = layers.Input(shape = [None, None, nchannels])
+    print("INPUTS:",inputs)
     decoder = build_unet_layers(inputs, filters, factors)
+    print("DECODER:",decoder)
     logits = layers.Conv2D(nclasses, (1,1), activation = 'softmax', bias_initializer = bias, name = 'probs')(decoder)
     classes = layers.Lambda(lambda x: tf.cast(tf.math.argmax(x, axis = -1), dtype = tf.int32), name = 'classes')(logits)
     model = models.Model(inputs = inputs, outputs = [logits, classes])
+    print("MODEL",model)
     # model.compile(
     #         optimizer=optim, 
     #         loss = loss,
