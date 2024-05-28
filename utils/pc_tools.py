@@ -181,7 +181,7 @@ def naip_mosaic(naips: list, crs: int):
     # reprojected = naipImage.rio.reproject('EPSG:4326')
     return(naipImage)
 
-def get_s2_stac(dates, aoi, cloud_thresh = 10):
+def get_s2_stac(dates, aoi, cloud_thresh = 10, bands = ["B02", "B03", "B04", "B08"]):
     """from a pystac client return a stac of s2 imagery
 
     Parameters 
@@ -216,12 +216,11 @@ def get_s2_stac(dates, aoi, cloud_thresh = 10):
         stackstac.stack(
             s2items,
             epsg = s2epsg,
-            assets=["B02", "B03", "B04", "B08"],  # red, green, blue
+            assets=bands,  # red, green, blue, nir
             chunksize=4096,
             resolution=10,
         )
         .where(lambda x: x > 0, other=np.nan)  # sentinel-2 uses 0 as nodata
-        .assign_coords({'band':['B2', 'B3', 'B4', 'B8']})  # use GEE names that model expects
     )
 
     s2crs = s2Stac.attrs['crs']
