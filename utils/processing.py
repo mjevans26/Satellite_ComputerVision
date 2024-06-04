@@ -676,7 +676,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             array = y[:,:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
 
             # shift range of categorical labels from [1, n_classes] to [0, n_classes]
-            zeroed = array - 1
+            zeroed = array
             # create one-hot representation of classes
             one_hot = tf.one_hot(zeroed, self.n_classes)
             # one_hot = to_one_hot(zeroed, self.n_classes)
