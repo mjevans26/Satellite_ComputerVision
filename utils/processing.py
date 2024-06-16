@@ -79,6 +79,7 @@ def match_files(urls, vars, delim:str = '_', parts:slice = slice(3,5), subset: s
         intx = intersection
     for var, ls in files_dic.items():
        subset = [f for f in ls if get_file_id(f, delim, parts) in intx]
+       subset.sort()
        vars_copy[var].update({"files": subset})
 
     return vars_copy
@@ -655,7 +656,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             array = y[:,:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
 
             # shift range of categorical labels from [1, n_classes] to [0, n_classes]
-            zeroed = array - 1
+            zeroed = array
             # create one-hot representation of classes
             one_hot = tf.one_hot(zeroed, self.n_classes)
             # one_hot = to_one_hot(zeroed, self.n_classes)
