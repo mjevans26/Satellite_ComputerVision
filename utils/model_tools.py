@@ -927,7 +927,7 @@ def get_acnn_model2(nclasses, nchannels, nfilters = 16, depth = 16):
     m = models.Model(inputs = input, outputs = logits)
     return m
 
-def get_hierarchical_model(nclasses, acnn_nclasses, acnn_sub_nclasses, acnn_dim, lstm_dim, nfilters, depth):
+def get_hierarchical_model(nclasses, acnn_nclasses, acnn_dim, lstm_dim, nfilters, depth, acnn_sub_nclasses = None):
     """Build a hierarchical model with 4-class acnn, 8-class acnn, and lstm-acnn hybrid structures
 
     Params
@@ -952,8 +952,6 @@ def get_hierarchical_model(nclasses, acnn_nclasses, acnn_sub_nclasses, acnn_dim,
     """
     midpoint = (depth-1)//2
     acnn_model = get_acnn_model2(nclasses = acnn_nclasses, nfilters = nfilters, nchannels = acnn_dim[-1], depth = depth)
-    intermediate_acnn_layer = acnn_model.get_layer(f'ReLU{midpoint}_2')
-    acnn_sub_dense = layers.Conv2D(acnn_sub_nclasses, [1,1], activation = 'softmax', data_format = 'channels_last', padding = 'same', name = 'sub_probs')(intermediate_acnn_layer.output)
     penultimate_acnn_layer = acnn_model.get_layer(f'ReLU{depth-1}_2')
     acnn_dense = layers.Conv2D(acnn_nclasses, [1,1], activation = 'softmax', data_format = 'channels_last', padding = 'same', name = 'acnn_probs')(penultimate_acnn_layer.output)
     lstm_input = layers.Input(shape=(lstm_dim[0], None, None, lstm_dim[-1]))
@@ -961,7 +959,13 @@ def get_hierarchical_model(nclasses, acnn_nclasses, acnn_sub_nclasses, acnn_dim,
     lstm_resized = tf.image.resize(lstm_output, [acnn_dim[0], acnn_dim[1]], method = 'nearest')
     concat_layer = layers.concatenate([lstm_resized, penultimate_acnn_layer.output], axis=-1)
     concat_dense = layers.Conv2D(nclasses, [1,1], activation = 'softmax', data_format = 'channels_last', padding = 'same', name = 'lstm_probs')(concat_layer)
-    m = models.Model(inputs = [acnn_model.input, lstm_input], outputs = [acnn_sub_dense, acnn_dense, concat_dense])
+    if acnn_sub_nclasses:
+        intermediate_acnn_layer = acnn_model.get_layer(f'ReLU{midpoint}_2')
+        acnn_sub_dense = layers.Conv2D(acnn_sub_nclasses, [1,1], activation = 'softmax', data_format = 'channels_last', padding = 'same', name = 'sub_probs')(intermediate_acnn_layer.output)
+        outputs = [acnn_sub_dense, acnn_dense, concat_dense]
+    else:
+        outputs = [acnn_dense, concat_dense]
+    m = models.Model(inputs = [acnn_model.input, lstm_input], outputs = outputs)
     return m
 ### MODEL EVALUATION TOOLS ###
 # def make_confusion_matrix_data(tpl, model, multiclass = False):

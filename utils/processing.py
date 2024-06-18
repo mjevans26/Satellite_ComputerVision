@@ -482,7 +482,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         self.lufiles = lufiles
         self.to_fit = to_fit
         self.batch_size = batch_size
-        self.dim = unet_dim
+        self.unet_dim = unet_dim
         self.n_channels = n_channels
         self.n_classes = n_classes
         self.shuffle = shuffle
@@ -576,9 +576,9 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             assert np.isnan(batch).sum() < 1, 'nans in batch, skipping'
             in_shape = batch.shape
             # in case our incoming data is of different size than we want, define a trim amount
-            trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2)
+            trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2)
             # If necessary, trim data to (-1, dims[0], dims[1])
-            array = batch[:,:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
+            array = batch[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
             # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
 
             reshaped = np.moveaxis(array, source = 1, destination = 3)
@@ -642,7 +642,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         
         try:
             assert len(lc_arrays) == self.batch_size
-            assert all([x.shape == (1, self.dim[0], self.dim[1]) for x in lc_arrays])
+            assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lc_arrays])
             lc = np.stack(lc_arrays, axis = 0) #(B, C, H, W)
             int_labels = lc.astype(int)
 
@@ -658,7 +658,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
                 lu_arrays = self._load_numpy_data(lu_files)
                 try:
                     assert len(lu_arrays) == self.batch_size
-                    assert all([x.shape == (1, self.dim[0], self.dim[1]) for x in lu_arrays])
+                    assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lu_arrays])
                     lu = np.stack(lu_arrays, axis = 0) #(B, C, H, W)
                     y = merge_classes(cond_array = lu, trans = self.lu_trans, out_array = merged_labels)
                 except AssertionError:
@@ -668,8 +668,8 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
 
             # If necessary, trim data to (-1, dims[0], dims[1])
             in_shape = y.shape
-            trim = ((in_shape[2] - self.dim[0])//2, (in_shape[3] - self.dim[1])//2)
-            array = y[:,:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
+            trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2)
+            array = y[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
 
             # shift range of categorical labels from [1, n_classes] to [0, n_classes]
             zeroed = array
@@ -773,8 +773,8 @@ class SiameseDataGenerator(UNETDataGenerator):
             binary = np.where(int_labels > 1, 1, int_labels)
             # If necessary, trim data to (-1, dims[0], dims[1])
             in_shape = binary.shape # -> (B, H, W)
-            trim = ((in_shape[1] - self.dim[0])//2, (in_shape[2] - self.dim[1])//2)
-            array = binary[:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
+            trim = ((in_shape[1] - self.unet_dim[0])//2, (in_shape[2] - self.unet_dim[1])//2)
+            array = binary[:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
 
             # add channel dimension (B, H, W) -> (B, H, W, C) expected by model
             reshaped = np.expand_dims(array, -1)
@@ -1002,8 +1002,8 @@ class HybridDataGenerator(UNETDataGenerator):
         arrays = self._load_numpy_data(files_temp)
 
         try:
-            assert len(arrays) > 0
-            assert all([x.shape == (self.lstm_dim[0], self.lstm_dim[3], self.lstm_dim[1], self.lstm_dim[2]) for x in arrays])
+            assert len(arrays) > 0, 'no arrays'
+            assert all([x.shape == (self.lstm_dim[0], self.lstm_dim[3], self.lstm_dim[1], self.lstm_dim[2]) for x in arrays]), [x.shape for x in arrays]
 
             # creat a single (B, T, C, H, W) array
             batch = np.stack(arrays, axis = 0)
@@ -1020,7 +1020,8 @@ class HybridDataGenerator(UNETDataGenerator):
             else:
                 recolored = normalized
             return recolored
-        except AssertionError:
+        except AssertionError as msg:
+            print(msg)
             return None
         
     def _get_s1_data(self, indexes):
