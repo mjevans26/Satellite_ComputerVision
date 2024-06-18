@@ -67,7 +67,7 @@ def match_files(urls, vars, delim:str = '_', parts:slice = slice(3,5), subset: s
     #print(len(subset))
     vars_copy = copy.deepcopy(vars)
 
-    files_dic = {key:[url for url in urls if f'/{key}/' in url] for key in vars.keys() if vars[key]['files'] is not None}
+    files_dic = {key:[url for url in urls if f'/{key}/' in url] for key in vars_copy.keys() if vars_copy[key]['files'] is not None}
 
     ids = [set([get_file_id(f, delim, parts) for f in files]) for files in files_dic.values()] # list of sets per var
 
@@ -79,6 +79,7 @@ def match_files(urls, vars, delim:str = '_', parts:slice = slice(3,5), subset: s
         intx = intersection
     for var, ls in files_dic.items():
        subset = [f for f in ls if get_file_id(f, delim, parts) in intx]
+       subset.sort()
        vars_copy[var].update({"files": subset})
 
     return vars_copy
@@ -593,7 +594,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             if self.to_fit:
                 recolored = aug_array_color(naip)
                 return recolored
-            return naip
+        return naip
         #else:
             #return naip
 
@@ -626,17 +627,12 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
     def _get_dem_data(self, indexes):
         files_temp = [self.demfiles[k] for k in indexes]
         dem = self._get_unet_data(files_temp,True,rescale_val=2000.0)
-        if type(dem) == np.ndarray:
-           # we are going to use the min and max elevations across the chesapeake
-          return dem
-        #else:
-         # return dem
+        return dem
 
     def _get_ssurgo_data(self, indexes):
         files_temp = [self.ssurgofiles[k] for k in indexes]
         ssurgo = self._get_unet_data(files_temp)
-        if type(ssurgo) == np.ndarray:
-            return ssurgo
+        return ssurgo
 
     def _process_y(self, indexes):
         # get label files for current batch
