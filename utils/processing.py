@@ -23,7 +23,7 @@ if str(DIR) not in sys.path:
 
 from array_tools import merge_classes, normalize_array, rescale_array, aug_array_color, aug_array_morph, rearrange_timeseries, normalize_timeseries, make_harmonics
 
-def get_file_id(f:str, delim:str = '_', parts:slice = slice(3,5)):
+def get_file_id(f:str, delim:str = '_', parts:slice = slice(3,5), flag=False):
     """Return a unique identifyier from a file name
 
     Params
@@ -43,6 +43,46 @@ def get_file_id(f:str, delim:str = '_', parts:slice = slice(3,5)):
     splits = stem.split(delim)
     ids = splits[parts]
     return tuple(ids)
+
+# def match_files(urls, vars, delim:str = '_', parts:slice = slice(3,5), subset: set = None):
+#     """Align files by unique id among variables
+#     Params
+#     ---
+#     urls: list:str
+#       unordered list of all filepaths to be sorted and aligned by variable
+#     vars: dict
+#       key, value pairs with variable names as keys (e.g., 'naip'). value = None will skip that variable
+#     delim: str
+#         delimiter optionally splitting filename into parts
+#     parts: slice
+#         slice identifying the parts to return
+#     subset: set
+#       optional. unique ids with which to further subset the returned files
+
+#     Returns
+#     ---
+#     dict: key, value pairs for each valid key in vars. variable names are key (e.g. 'naip') and values are corresponding list of files
+#     """
+
+#     #print(len(subset))
+#     vars_copy = copy.deepcopy(vars)
+
+#     files_dic = {key:[url for url in urls if f'_{key}_' in url] for key in vars.keys() if vars[key]['files'] is not None}
+#     #print([[f for f in files[:100] if '?' in f] for files in files_dic.values()])
+#     #sys.exit()
+#     ids = [set([get_file_id(f, delim, parts) for f in files]) for files in files_dic.values()] # list of sets per var
+#     intersection = set.intersection(*ids)
+#     print(ids)
+#     if subset:
+#         intx = intersection.intersection(subset)
+#     else:
+#         intx = intersection
+#     for var, ls in files_dic.items():
+#        subset = [f for f in ls if get_file_id(f, delim, parts) in intx]
+#        for f in ls:
+#         print(get_file_id(f, delim, parts, flag=True))
+#        vars_copy[var].update({"files": subset})
+#     return vars_copy
 
 def match_files(urls, vars, delim:str = '_', parts:slice = slice(3,5), subset: set = None):
     """Align files by unique id among variables
@@ -67,16 +107,17 @@ def match_files(urls, vars, delim:str = '_', parts:slice = slice(3,5), subset: s
     #print(len(subset))
     vars_copy = copy.deepcopy(vars)
 
-    files_dic = {key:[url for url in urls if f'/{key}/' in url] for key in vars_copy.keys() if vars_copy[key]['files'] is not None}
+    files_dic = {key:[url for url in urls if f'_{key}_' in url] for key in vars_copy.keys() if vars_copy[key]['files'] is not None}
 
     ids = [set([get_file_id(f, delim, parts) for f in files]) for files in files_dic.values()] # list of sets per var
-
+    
     intersection = set.intersection(*ids)
 
     if subset:
         intx = intersection.intersection(subset)
     else:
         intx = intersection
+        
     for var, ls in files_dic.items():
        subset = [f for f in ls if get_file_id(f, delim, parts) in intx]
        subset.sort()
@@ -594,7 +635,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             if self.to_fit:
                 recolored = aug_array_color(naip)
                 return recolored
-        return naip
+            return naip
         #else:
             #return naip
 
@@ -627,12 +668,17 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
     def _get_dem_data(self, indexes):
         files_temp = [self.demfiles[k] for k in indexes]
         dem = self._get_unet_data(files_temp,True,rescale_val=2000.0)
-        return dem
+        if type(dem) == np.ndarray:
+           # we are going to use the min and max elevations across the chesapeake
+          return dem
+        #else:
+         # return dem
 
     def _get_ssurgo_data(self, indexes):
         files_temp = [self.ssurgofiles[k] for k in indexes]
         ssurgo = self._get_unet_data(files_temp)
-        return ssurgo
+        if type(ssurgo) == np.ndarray:
+            return ssurgo
 
     def _process_y(self, indexes):
         # get label files for current batch
@@ -773,8 +819,8 @@ class SiameseDataGenerator(UNETDataGenerator):
             binary = np.where(int_labels > 1, 1, int_labels)
             # If necessary, trim data to (-1, dims[0], dims[1])
             in_shape = binary.shape # -> (B, H, W)
-            trim = ((in_shape[1] - self.unet_dim[0])//2, (in_shape[2] - self.unet_dim[1])//2)
-            array = binary[:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
+            trim = ((in_shape[1] - self.dim[0])//2, (in_shape[2] - self.dim[1])//2)
+            array = binary[:,trim[0]:self.dim[0]+trim[0], trim[1]:self.dim[1]+trim[1]]
 
             # add channel dimension (B, H, W) -> (B, H, W, C) expected by model
             reshaped = np.expand_dims(array, -1)
@@ -968,6 +1014,7 @@ class HybridDataGenerator(UNETDataGenerator):
                 lstm_dim = (6, 32, 32, 6),
                 lc_transitions = [(12,3), (11,3), (10,3), (9,8), (255, 0)],
                 lu_transitions = [(82,9), (84,10)],
+                unet_dim = (600,600),
                  *args, **kwargs):
         """Class Initialization
 
@@ -991,6 +1038,7 @@ class HybridDataGenerator(UNETDataGenerator):
         self.lc_trans = lc_transitions
         self.lu_trans = lu_transitions
         self.lstm_dim = lstm_dim
+        self.unet_dim = unet_dim
         self.n_timesteps = lstm_dim[0]
         self.on_epoch_end()
 
@@ -1000,9 +1048,13 @@ class HybridDataGenerator(UNETDataGenerator):
         # arrays come from PC in (T, C, H, W) format
         # arrays = [np.load(f) for f in files_temp]
         arrays = self._load_numpy_data(files_temp)
+        # for x in arrays:
+        #     if len(x.shape) != 4:
+        #         print(x)
+        #         print(files_temp)
 
         try:
-            assert len(arrays) > 0, 'no arrays'
+            assert len(arrays) > 0, "No Array Found"
             assert all([x.shape == (self.lstm_dim[0], self.lstm_dim[3], self.lstm_dim[1], self.lstm_dim[2]) for x in arrays]), [x.shape for x in arrays]
 
             # creat a single (B, T, C, H, W) array
@@ -1022,6 +1074,7 @@ class HybridDataGenerator(UNETDataGenerator):
             return recolored
         except AssertionError as msg:
             print(msg)
+            sys.exit()
             return None
         
     def _get_s1_data(self, indexes):

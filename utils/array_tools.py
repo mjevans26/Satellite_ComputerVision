@@ -38,9 +38,10 @@ def merge_classes(cond_array, trans, out_array):
     np.darray
         reclassified array same shape and size as input
     """
+    output = np.copy(out_array)
     for x,y in trans:
-      out_array[cond_array == x] = y
-    return out_array
+      output[cond_array == x] = y
+    return output
         
  
 def normalize_array(img, axes=[2], epsilon=1e-8, moments = None, splits = None):
