@@ -228,14 +228,14 @@ def get_s2_stac(dates, aoi, cloud_thresh = 10, bands = ["B02", "B03", "B04", "B0
     clipped = s2projected.rio.clip(geometries = [aoi], crs = 4326)
     return clipped
 
-def get_ssurgo_stac(aoi, crs)-> np.ndarray:
+def get_ssurgo_stac(aoi, epsg)-> np.ndarray:
     """Sample ssurgo data in raster format
     
     Parameters
     ---
-    catalog: pystac_client.client.Client
-        planetary computer catalog
-    crs: CRS
+    aoi: shapely.geometry.Polygon
+        polygon coordinates defining search aoi
+    epsg: int
         cooridnate reference system epsg code to reproject ssurgo data to
     
     Returns
@@ -250,28 +250,51 @@ def get_ssurgo_stac(aoi, crs)-> np.ndarray:
         collections=["gnatsgo-rasters"],
         intersects=aoi
     )
+    surgoitems = planetary_computer.sign(search.get_all_items())
+    return surgoitems
+    # surgoitems = [planetary_computer.sign(item).to_dict() for item in list(search.items())]
+    # surgo = surgoitems[0]
 
-    surgoitems = [planetary_computer.sign(item).to_dict() for item in list(search.items())]
-    surgo = surgoitems[0]
+    # surgowkt = surgo['properties']['proj:wkt2']
+    # if epsg:
+    #     surgoEPSG = epsg #surgoCrs.to_epsg()
+    # else:
+    #     surgoEPSG = CRS.from_wkt(surgowkt).to_epsg()
 
-    surgowkt = surgo['properties']['proj:wkt2']
-    if crs:
-        surgoEPSG = crs.to_epsg()
-    else:
-        surgoEPSG = CRS.from_wkt(surgowkt)
+    # print(surgoEPSG)
+    # # surgoepsg = surgo['properties']['proj:epsg']
+    # surgoStac = stackstac.stack(
+    #         surgoitems,
+    #         # epsg = surgoEPSG,
+    #         epsg = surgoEPSG,
+    #         assets=['mukey'])
 
-    # surgoepsg = surgo['properties']['proj:epsg']
-    surgoStac = stackstac.stack(
-            surgoitems,
-            epsg = surgoEPSG,
-            assets=['mukey'])
-
-    surgoTransform = surgoStac.attrs['transform']
-    surgores = 10 #surgoTransform[0] TODO: COnfirm ssurgo is always 10 m resolution
-    print('resolution', surgores)
+    # surgoTransform = surgoStac.attrs['transform']
+    # # surgores = 10 #surgoTransform[0] TODO: COnfirm ssurgo is always 10 m resolution
+    # # print('resolution', surgores)
     
-    temporal = surgoStac.median(dim = 'time')
-    return temporal, surgoEPSG
+    # temporal = surgoStac.median(dim = 'time')
+    # return temporal, surgoTransform, surgoEPSG
+
+def join_ssurgo(ssurgo_table, ssurgo_raster:np.ndarray):
+    C,H,W = ssurgo_raster.shape
+    # get the unique values and their indices from the raster so we can join to table data
+    unique_mukeys, inverse = np.unique(ssurgo_raster, return_inverse=True) 
+    print('unique mukeys', unique_mukeys)
+    rearranged = ssurgo_table[['mukey', 'hydclprs', 'drclassdcd', 'flodfreqdcd', 'wtdepannmin']].groupby('mukey').first().reindex(unique_mukeys, fill_value=np.nan).astype(np.float64)
+    rearranged.loc[rearranged['wtdepannmin'] > 200.0, 'wtdepannmin'] = 200.0 # anything above 200 should be clipped to 200
+    rearranged['wtdepannmin'] = rearranged['wtdepannmin'].fillna(200.0) # missing values are above 200 cm deep
+    rearranged['wtdepannmin'] = rearranged['wtdepannmin']/200.0 # 200 cm is the max measured value
+
+    rearranged['flodfreqdcd'] = rearranged['flodfreqdcd'].fillna(0.0) # missing values mean no flooding
+    
+    rearranged['drclassdcd'] = rearranged['drclassdcd'].fillna(0.0) # missing values mean no soil e.g. excessively drained
+    
+    rearranged['hydclprs'] = rearranged['hydclprs'].fillna(0.0) # missing values mean no soil e.g. not hydric
+    rearranged['hydclprs'] = rearranged['hydclprs']/100.0 # 100 percent hydric is max
+    # join tabluar data to ssurgo raster based on mukey
+    ssurgo_hwc = rearranged.to_numpy()[inverse].reshape((H, W, 4)) # HWC
+    return ssurgo_hwc
 
 def get_pc_imagery(aoi, dates, crs):
     """Get S2 imagery from Planetary Computer. REQUIRES a valid API token be added to the os environment
