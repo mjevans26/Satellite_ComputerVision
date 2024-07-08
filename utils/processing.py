@@ -984,7 +984,7 @@ class HybridDataGenerator(UNETDataGenerator):
         Params
         ---
         unet_dim: tuple
-            desired unet image H, W, C dimensions
+            desired unet image H, W dimensions
         lstm_dim: tuple
             desired lstm image T, H, W, C dimensions
         lc_transitions: list
@@ -1005,17 +1005,8 @@ class HybridDataGenerator(UNETDataGenerator):
         self.n_timesteps = lstm_dim[0]
         self.on_epoch_end()
 
-    def _get_s2_data(self, indexes):
-
-        files_temp = [self.s2files[k] for k in indexes]
-        # arrays come from PC in (T, C, H, W) format
-        # arrays = [np.load(f) for f in files_temp]
+    def _get_lstm_data(self, files_temp, rescale_val = 1.0, mask = False):
         arrays = self._load_numpy_data(files_temp)
-        # for x in arrays:
-        #     if len(x.shape) != 4:
-        #         print(x)
-        #         print(files_temp)
-
         try:
             assert len(arrays) > 0, "No Array Found"
             assert all([x.shape == (self.lstm_dim[0], self.lstm_dim[3], self.lstm_dim[1], self.lstm_dim[2]) for x in arrays]), [x.shape for x in arrays]
@@ -1029,42 +1020,29 @@ class HybridDataGenerator(UNETDataGenerator):
 
             # rearrange arrays from (B, T, C, H, W) -> (B, T, H, W, C) expected by model
             reshaped = np.moveaxis(array, source = 2, destination = 4)
-            normalized = normalize_timeseries(reshaped, axis = 1)
-            if self.to_fit:
-                recolored = aug_array_color(normalized)
-            else:
-                recolored = normalized
-            return recolored
+            normalized = normalize_timeseries(reshaped, maxval = normalize, axis = 1)
+            return normalized
         except AssertionError as msg:
             print(msg)
             sys.exit()
-            return None
+            return None    
+
+    def _get_s2_data(self, indexes):
+        files_temp = [self.s2files[k] for k in indexes]
+        normalized = self._get_lstm_data(files_temp, rescale_val = 10000.0)
+        if type(normalized) == np.ndarray:
+            if self.to_fit:
+                recolored = aug_array_color(normalized)
+                return recolored
+            else:
+                return normalized
         
     def _get_s1_data(self, indexes):
-
         files_temp = [self.s1files[k] for k in indexes]
-        # arrays come from PC in (T, C, H, W) format
-        # arrays = [np.load(f) for f in files_temp]
-        arrays = self._load_numpy_data(files_temp)
-
-        try:
-            assert len(arrays) > 0
-            assert all([x.shape == (self.lstm_dim[0], self.lstm_dim[3], self.lstm_dim[1], self.lstm_dim[2]) for x in arrays])
-
-            # creat a single (B, T, C, H, W) array
-            batch = np.stack(arrays, axis = 0)
-            # in case our incoming data is of different size than we want, define a trim amount
-            trim = ((batch.shape[3] - self.lstm_dim[1])//2, (batch.shape[4] - self.lstm_dim[2])//2)
-
-            array = batch[:, 0:self.n_timesteps,:,trim[0]:self.lstm_dim[1]+trim[0],trim[1]:self.lstm_dim[2]+trim[1]]
-
-            # rearrange arrays from (B, T, C, H, W) -> (B, T, H, W, C) expected by model
-            reshaped = np.moveaxis(array, source = 2, destination = 4)
-            normalized = normalize_timeseries(reshaped, maxval = 0.5, axis = 1)
+        normalized = self._get_lstm_data(files_temp, rescale_val = -50.0)
+        if type(normalized) == np.ndarray:
             return normalized
-        except AssertionError:
-            return None
-
+            
     def __getitem__(self, index):
         """Generate one batch of data
 
