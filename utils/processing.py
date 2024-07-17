@@ -586,7 +586,18 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
 
             reshaped = np.moveaxis(array, source = 1, destination = 3)
-            return reshaped
+            nans = np.isnan(reshaped)
+            if add_nan_mask:
+                mask = np.ones(shape = reshaped.shape) # create a mask with all valid pixels by default
+                mask[nans] = 0 # inject zeros into mask at invalid pixels
+                mask[reshaped < -1] = 0
+                reduced_mask = mask.min(axis = -1, keepdims = True) # reduce mask along channels -> (B, C, H, 1)
+                reshaped[nans] = np.random.random(nans.sum()) # replace nan values with random val from [0,1)
+                masked = np.concatenate([reshaped, reduced_mask], axis = -1) # add mask to batch as additional channel
+                return reshaped, reduced_mask
+            else:
+                assert np.isnan(reshaped).sum() < 1, 'nans in batch, skipping'
+                return reshaped
         except AssertionError as msg:
           print(msg)
           return None
@@ -616,24 +627,24 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
 
     def _get_lidar_data(self, indexes):
         files_temp = [self.lidarfiles[k] for k in indexes]
-        lidar = self._get_unet_data(files_temp,True,rescale_val=100)
+        lidar, mask = self._get_unet_data(files_temp,True,rescale_val=100)
         if type(lidar) == np.ndarray:
-            return lidar
+            return lidar, mask
 
     def _get_hag_data(self, indexes):
         files_temp = [self.hagfiles[k] for k in indexes]
-        hag = self._get_unet_data(files_temp, True, rescale_val=100)
+        hag, mask = self._get_unet_data(files_temp, True, rescale_val=100)
         if type(hag) == np.ndarray:
-            return hag
+            return hag, mask
         #else:
          #   return hag
 
     def _get_dem_data(self, indexes):
         files_temp = [self.demfiles[k] for k in indexes]
-        dem = self._get_unet_data(files_temp,True,rescale_val=2000.0)
+        dem, mask = self._get_unet_data(files_temp,True,rescale_val=2000.0)
         if type(dem) == np.ndarray:
            # we are going to use the min and max elevations across the chesapeake
-          return dem
+          return dem, mask
         #else:
          # return dem
 
@@ -700,7 +711,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
 
         datasets = []
-
+        masks = []
         if self.s2files:
             s2Data = self._get_s2_data(indexes)
             datasets.append(s2Data)
@@ -711,14 +722,16 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             datasets.append(naipData)
 
         if self.hagfiles:
-            hagData = self._get_hag_data(indexes)
+            hagData, hagMask = self._get_hag_data(indexes)
             datasets.append(hagData)
+            masks.append(hagMask)
 
         if self.demfiles:
-            demData = self._get_dem_data(indexes)
+            demData, demMask = self._get_dem_data(indexes)
             # print('dem', demData.shape)
             #print("appening DEM data",type(demData))
             datasets.append(demData)
+            masks.append(demMask)
 
         if self.ssurgofiles:
             ssurgoData = self._get_ssurgo_data(indexes)
@@ -727,16 +740,21 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             datasets.append(ssurgoData)
 
         if self.lidarfiles:
-            lidarData = self._get_lidar_data(indexes)
+            lidarData, lidarMask = self._get_lidar_data(indexes)
             datasets.append(lidarData)
+            masks.append(lidarMask)
 
         if any([type(dat) != np.ndarray for dat in datasets]):
           pass
         else:
             xData = np.concatenate(datasets, axis = -1)
-
+        if len(masks) > 0:
+            mask = np.concatenate(masks, axis = -1).min(axis = -1, keepdims = True)
+        else:
+            mask = np.ones((self.batch_size, self.dim[0], self.dim[1], 1))
         if self.to_fit:
-            labels = self._process_y(indexes)
+            print('mask shape', mask.shape)
+            labels = self._process_y(indexes) * mask # create all zero vector of one-hot labels at masked pixels. won't contribute to loss fxn
             # perform morphological augmentation - expects a 3D (H, W, C) image array
             stacked = np.concatenate([xData, labels], axis = -1)
             morphed = aug_array_morph(stacked)
@@ -1020,17 +1038,14 @@ class HybridDataGenerator(UNETDataGenerator):
 
             # rearrange arrays from (B, T, C, H, W) -> (B, T, H, W, C) expected by model
             reshaped = np.moveaxis(array, source = 2, destination = 4)
-            normalized = normalize_timeseries(reshaped, maxval = normalize, axis = 1)
-            return normalized
-        except AssertionError as msg:
-            print(msg)
-            sys.exit()
-            return None    
 
-    def _get_s2_data(self, indexes):
-        files_temp = [self.s2files[k] for k in indexes]
-        normalized = self._get_lstm_data(files_temp, rescale_val = 10000.0)
-        if type(normalized) == np.ndarray:
+            # replace missing timesteps with mean pixel value through time
+            nans = np.isnan(reshaped)
+            nans_reduced = nans.max(axis = 1) # reduce flagging any nan along time axis
+            means = np.nanmean(reshaped, axis = 1) # take mean along time axis
+            reshaped[nans] = means[nans_reduced]
+
+            normalized = normalize_timeseries(reshaped, maxval = 10000, axis = 1)
             if self.to_fit:
                 recolored = aug_array_color(normalized)
                 return recolored

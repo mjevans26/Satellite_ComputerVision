@@ -1066,13 +1066,15 @@ def retrain_model(model_file, checkpoint, eval_data, metric, weights_file = None
         
     # load our previously trained model and weights
     if type(model_file) == str:
-        m = models.load_model(model_file, custom_objects = custom_objects)
+        m = models.load_model(model_file, custom_objects = custom_objects, by_name = by_name, skip_mismatch = skip_mismatch)
     else:
         m = model_file
     
     if weights_file.startswith('https'):
         m = get_blob_weights(m = m, hdf5_url = weights_file, by_name = by_name, skip_mismatch = skip_mismatch)
+        m = get_blob_weights(m = m, hdf5_url = weights_file, by_name = by_name, skip_mismatch = skip_mismatch)
     elif weights_file:
+        m.load_weights(weights_file, by_name = by_name, skip_mismatch = skip_mismatch)
         m.load_weights(weights_file, by_name = by_name, skip_mismatch = skip_mismatch)
     # set the initial evaluation metric for saving checkpoints to the previous best value
     evalMetrics = m.evaluate(x = eval_data, verbose = 1)
@@ -1115,7 +1117,7 @@ def get_blob_weights(m: models.Model, hdf5_url:str = None, by_name = False, skip
     
     return m
 
-def get_blob_model(h5_url: str = None, hdf5_url:str = None, custom_objects: dict = None) -> models.Model:
+def get_blob_model(h5_url: str = None, hdf5_url:str = None, custom_objects: dict = None, by_name = False, skip_mismatch = False) -> models.Model:
     """Load a keras model from blob storage to local machine
 
     Provided urls to a model structure (.h5) and weights (.hdf5) files stored as azure blobs, download local copies of
@@ -1141,13 +1143,13 @@ def get_blob_model(h5_url: str = None, hdf5_url:str = None, custom_objects: dict
         with io.BytesIO() as f:
             model_downloader.readinto(f)
             with h5py.File(f, 'r') as h5file:
-                m = models.load_model(h5file, custom_objects = custom_objects, compile = False)
+                m = models.load_model(h5file, custom_objects = custom_objects, compile = False, by_name = by_name, skip_mismatch = skip_mismatch)
     elif hdf5_url:
         model_client = BlobClient.from_blob_url(blob_url = hdf5_url)
         model_downloader = model_client.download_blob(0)        
         with tempfile.NamedTemporaryFile(suffix = '.hdf5') as f:
             model_downloader.readinto(f)
-            m = models.load_model(f.name, custom_objects = custom_objects, compile = False)
+            m = models.load_model(f.name, custom_objects = custom_objects, compile = False, by_name = by_name, skip_mismatch = skip_mismatch)
     else:
         print('must provide a url to either an .h5 or .hdf5 file')
         m = None    
