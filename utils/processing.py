@@ -545,39 +545,39 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             chw = [np.moveaxis(x, source = -1, destination = 0) if x.shape[-1] < x.shape[0] else x for x in arrays]
             if rescale_val is not False:
                 chw = [x/rescale_val for x in chw]
-            if add_nan_mask == True:
-                chw_new = []
-                for cur_array in chw:                 
+            # if add_nan_mask == True:
+            #     chw_new = []
+            #     for cur_array in chw:                 
                         
-                    mask_channel = np.zeros([cur_array.shape[1], cur_array.shape[2]])
-                    # Create a random array to be used to replace the original data
-                    for arr_2d in cur_array:
-                        nans = np.isnan(arr_2d)
-                        bads = arr_2d < -5000
-                        mask_channel[nans==True] = 1
-                        mask_channel[bads==True] = 1
-                        arr_2d[mask_channel==1] = np.random.randn((mask_channel==1).sum())
-                        # arr_2d[nans==True] = np.random.uniform()
-                        #arr_2d[np.isnan(arr_2d)] = np.random.randn(len(arr_2d[np.isnan(arr_2d)]))
-                    #print("AFTER FIX:",np.isnan(cur_array).sum())
-                    #cur_array = np.vstack((cur_array, mask[None,:,:]))
+            #         mask_channel = np.zeros([cur_array.shape[1], cur_array.shape[2]])
+            #         # Create a random array to be used to replace the original data
+            #         for arr_2d in cur_array:
+            #             nans = np.isnan(arr_2d)
+            #             bads = arr_2d < -5000
+            #             mask_channel[nans==True] = 1
+            #             mask_channel[bads==True] = 1
+            #             arr_2d[mask_channel==1] = np.random.randn((mask_channel==1).sum())
+            #             # arr_2d[nans==True] = np.random.uniform()
+            #             #arr_2d[np.isnan(arr_2d)] = np.random.randn(len(arr_2d[np.isnan(arr_2d)]))
+            #         #print("AFTER FIX:",np.isnan(cur_array).sum())
+            #         #cur_array = np.vstack((cur_array, mask[None,:,:]))
 
 
-                    """randarr = np.random.uniform(size=cur_array.shape)*cur_array.max()
-                    # Build a mask layer to use in the replacement
-                    n_cols = cur_array.shape[2]
-                    n_rows = cur_array.shape[1]
-                    mask_channel = np.ones((n_rows, n_cols), dtype=np.int8)
-                    np.any(cur_array == np.nan, axis=0, out=mask_channel)
-                    # Replace the values in any of the channels where the mask_channel is 0 with the values from the random array
-                    cur_array[:, mask_channel == 1] = randarr[:, mask_channel == 1]
-                    cur_array[:, mask_channel == 1] = randarr[:, mask_channel == 1] """
-                    cur_array = np.append(cur_array, mask_channel[np.newaxis, :, :], axis=0)
-                    #print("AFTER:",np.isnan(cur_array).sum())
-                    chw_new.append(cur_array)
-                chw = chw_new
+            #         """randarr = np.random.uniform(size=cur_array.shape)*cur_array.max()
+            #         # Build a mask layer to use in the replacement
+            #         n_cols = cur_array.shape[2]
+            #         n_rows = cur_array.shape[1]
+            #         mask_channel = np.ones((n_rows, n_cols), dtype=np.int8)
+            #         np.any(cur_array == np.nan, axis=0, out=mask_channel)
+            #         # Replace the values in any of the channels where the mask_channel is 0 with the values from the random array
+            #         cur_array[:, mask_channel == 1] = randarr[:, mask_channel == 1]
+            #         cur_array[:, mask_channel == 1] = randarr[:, mask_channel == 1] """
+            #         cur_array = np.append(cur_array, mask_channel[np.newaxis, :, :], axis=0)
+            #         #print("AFTER:",np.isnan(cur_array).sum())
+            #         chw_new.append(cur_array)
+            #     chw = chw_new
             batch = np.stack(chw, axis = 0)
-            assert np.isnan(batch).sum() < 1, 'nans in batch, skipping'
+            # assert np.isnan(batch).sum() < 1, 'nans in batch, skipping'
             in_shape = batch.shape
             # in case our incoming data is of different size than we want, define a trim amount
             trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2)
@@ -695,6 +695,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             zeroed = array
             # create one-hot representation of classes
             one_hot = tf.one_hot(zeroed, self.n_classes)
+            print('y shape', one_hot.shape)
             # one_hot = to_one_hot(zeroed, self.n_classes)
             return tf.squeeze(one_hot)
 
@@ -1051,6 +1052,9 @@ class HybridDataGenerator(UNETDataGenerator):
                 return recolored
             else:
                 return normalized
+        except AssertionError as msg:
+            print(msg)
+            return None
         
     def _get_s1_data(self, indexes):
         files_temp = [self.s1files[k] for k in indexes]
