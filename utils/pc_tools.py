@@ -181,7 +181,7 @@ def naip_mosaic(naips: list, crs: int):
     # reprojected = naipImage.rio.reproject('EPSG:4326')
     return(naipImage)
 
-def get_s2_stac(dates, aoi, cloud_thresh = 10, bands = ["B02", "B03", "B04", "B08"]):
+def get_s2_stac(dates, aoi, epsg = None, cloud_thresh = 10, bands = ["B02", "B03", "B04", "B08"]):
     """from a pystac client return a stac of s2 imagery
 
     Parameters 
@@ -211,11 +211,12 @@ def get_s2_stac(dates, aoi, cloud_thresh = 10, bands = ["B02", "B03", "B04", "B0
 
     s2items = [item.to_dict() for item in list(search.get_items())]
     s2 = s2items[0]
-    s2epsg = s2['properties']['proj:epsg']
+    if not epsg:
+        epsg = s2['properties']['proj:epsg']
     s2Stac = (
         stackstac.stack(
             s2items,
-            epsg = s2epsg,
+            epsg = epsg,
             assets=bands,  # red, green, blue, nir
             chunksize=4096,
             resolution=10,
@@ -227,6 +228,56 @@ def get_s2_stac(dates, aoi, cloud_thresh = 10, bands = ["B02", "B03", "B04", "B0
     s2projected = s2Stac.rio.set_crs(s2crs)
     clipped = s2projected.rio.clip(geometries = [aoi], crs = 4326)
     return clipped
+
+def get_s1_stac(dates, aoi, epsg  = None, bands = ["vv", "vh"]):
+    """from a pystac client return a stac of s2 imagery
+
+    Parameters 
+    ----
+    client: pystac_client.Client()
+        pystac catalog from which to retrieve assets
+    dates: str
+        start/end dates
+    bbox: tpl
+        [xmin, ymin, xmax, ymax]
+    
+    Return
+    ---
+    stackstac.stac()
+    """
+    # connect to the planetary computer catalog
+    catalog = pystac_client.Client.open(
+        "https://planetarycomputer.microsoft.com/api/stac/v1",
+        modifier = planetary_computer.sign_inplace)
+
+    search = catalog.search(
+        datetime = dates,
+        intersects = aoi,
+        collections=["sentinel-1-rtc"],
+        query={"sar:polarizations": {"eq": ['VV', 'VH']},
+                'sar:instrument_mode': {"eq": 'IW'},
+                'sat:orbit_state': {"eq": 'ascending'}
+                }
+    )
+
+    s1items = search.item_collection()
+    if not epsg:
+        s1 = s1items[0]
+        epsg = s1.properties['proj:epsg']
+    s1Stac = stackstac.stack(
+        s1items,
+        epsg = epsg,
+        assets=bands,
+        resolution=10)
+
+    # # get spatial reference info
+    # s1crs = s1Stac.attrs['crs']
+    # s1transform = s1Stac.attrs['transform']
+    # s1res = s1transform[0]
+
+    # s1projected = s1Stac.rio.set_crs(s1crs)
+    # clipped = s1projected.rio.clip(geometries = [aoi], crs = 4326)
+    return s1Stac
 
 def get_ssurgo_stac(aoi, epsg)-> np.ndarray:
     """Sample ssurgo data in raster format
