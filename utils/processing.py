@@ -695,7 +695,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             zeroed = array
             # create one-hot representation of classes
             one_hot = tf.one_hot(zeroed, self.n_classes)
-            print('y shape', one_hot.shape)
+            # print('y shape', one_hot.shape)
             # one_hot = to_one_hot(zeroed, self.n_classes)
             return tf.squeeze(one_hot)
 
@@ -754,7 +754,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         else:
             mask = np.ones((self.batch_size, self.dim[0], self.dim[1], 1))
         if self.to_fit:
-            print('mask shape', mask.shape)
+            # print('mask shape', mask.shape)
             labels = self._process_y(indexes) * mask # create all zero vector of one-hot labels at masked pixels. won't contribute to loss fxn
             # perform morphological augmentation - expects a 3D (H, W, C) image array
             stacked = np.concatenate([xData, labels], axis = -1)
@@ -1024,7 +1024,7 @@ class HybridDataGenerator(UNETDataGenerator):
         self.n_timesteps = lstm_dim[0]
         self.on_epoch_end()
 
-    def _get_lstm_data(self, files_temp, rescale_val = 1.0, mask = False):
+    def _get_lstm_data(self, files_temp, rescale_val = 1.0, nan_mask = False):
         arrays = self._load_numpy_data(files_temp)
         try:
             assert len(arrays) > 0, "No Array Found"
@@ -1039,18 +1039,22 @@ class HybridDataGenerator(UNETDataGenerator):
 
             # rearrange arrays from (B, T, C, H, W) -> (B, T, H, W, C) expected by model
             reshaped = np.moveaxis(array, source = 2, destination = 4)
-
-            # replace missing timesteps with mean pixel value through time
+            normalized = normalize_timeseries(reshaped, maxval = rescale_val, axis = 1)
             nans = np.isnan(reshaped)
-            nans_reduced = nans.max(axis = 1) # reduce flagging any nan along time axis
-            means = np.nanmean(reshaped, axis = 1) # take mean along time axis
-            reshaped[nans] = means[nans_reduced]
 
-            normalized = normalize_timeseries(reshaped, maxval = 10000, axis = 1)
-            if self.to_fit:
-                recolored = aug_array_color(normalized)
-                return recolored
+            # fill nans with random value and mask
+            if nan_mask:
+                mask = np.ones(shape = reshaped.shape)
+                mask[nans] = 0
+                reduced_mask = mask.min(axis = (1,-1))
+                normalized[nans] = np.random.random(nans.sum())
+                return normalized, reduced_mask
+            # # replace missing timesteps with mean pixel value through time
+            # nans_reduced = nans.max(axis = (1)) # reduce flagging any nan along time axis
+            # means = np.nanmean(reshaped, axis = (1)) # take mean along time axis
+            # reshaped[nans] = means[nans_reduced]
             else:
+                assert np.isnan(reshaped).sum() < 1, 'nans in batch, skipping'
                 return normalized
         except AssertionError as msg:
             print(msg)
@@ -1058,8 +1062,21 @@ class HybridDataGenerator(UNETDataGenerator):
         
     def _get_s1_data(self, indexes):
         files_temp = [self.s1files[k] for k in indexes]
-        normalized = self._get_lstm_data(files_temp, rescale_val = -50.0)
+        normalized, mask = self._get_lstm_data(files_temp, rescale_val = -50.0, nan_mask = True)
+        # print(type(normalized))
         if type(normalized) == np.ndarray:
+            if self.to_fit:
+                recolored = aug_array_color(normalized)
+                return recolored, mask
+            return normalized
+
+    def _get_s2_data(self, indexes):
+        files_temp = [self.s1files[k] for k in indexes]
+        normalized, mask = self._get_lstm_data(files_temp, rescale_val = 10000.0, nan_mask = True)
+        if type(normalized) == np.ndarray:
+            if self.to_fit:
+                recolored = aug_array_color(normalized)
+                return recolored, mask
             return normalized
             
     def __getitem__(self, index):
@@ -1074,24 +1091,31 @@ class HybridDataGenerator(UNETDataGenerator):
 
         unetDatasets = []
         lstmDatasets = []
+        unetMasks = []
+        lstmMasks = []
         if self.s2files:
-            s2Data = self._get_s2_data(indexes)
+            s2Data, s2Mask = self._get_s2_data(indexes)
             lstmDatasets.append(s2Data)
+            lstmMasks.append(s2Mask)
         if self.s1files:
-            s1Data = self._get_s1_data(indexes)
+            s1Data, s1Mask = self._get_s1_data(indexes)
             lstmDatasets.append(s1Data)
+            lstmMasks.append(s1Mask)
         if self.naipfiles:
             naipData = self._get_naip_data(indexes)
             unetDatasets.append(naipData)
         if self.demfiles:
-            demData = self._get_dem_data(indexes)
+            demData, demMask = self._get_dem_data(indexes)
             unetDatasets.append(demData)
+            unetMasks.append(demMask)
         if self.hagfiles:
-            hagData = self._get_hag_data(indexes)
+            hagData, hagMask = self._get_hag_data(indexes)
             unetDatasets.append(hagData)
+            unetMasks.append(hagMask)
         if self.lidarfiles:
-            lidarData = self._get_lidar_data(indexes)
+            lidarData, lidarMask = self._get_lidar_data(indexes)
             unetDatasets.append(lidarData)
+            unetMasks.append(lidarMask)
         if self.ssurgofiles:
             ssurgoData = self._get_ssurgo_data(indexes)
             unetDatasets.append(ssurgoData)
