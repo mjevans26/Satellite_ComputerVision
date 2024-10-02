@@ -20,12 +20,14 @@ import random
 from osgeo import gdal
 rio.Env(CHECK_DISK_FREE_SPACE=False)
 
-def generate_chip_indices(arr, buff = 128, kernel = 256):
+def generate_chip_indices(H, W, buff = 128, kernel = 256):
   """
   Parameters
   ---
-    arr: np.ndarray
-      3D array (H, W, C) for which indices should be generated
+    H: int
+      height dimension in pixels over which indices should be generated
+    W: int
+      width dimension in pixels over which indices should be generated      
     buff: int
       size of pixels to be trimmed from each side of chip
     kernel: int
@@ -34,7 +36,6 @@ def generate_chip_indices(arr, buff = 128, kernel = 256):
   ---
     list::np.ndarray: list containing (y,x) index of chips upper left corner
   """
-  H, W, C = arr.shape
   side = (2*buff) + kernel
   x_buff = y_buff = buff
   
@@ -402,6 +403,58 @@ def numpy_to_raster(arr: np.ndarray, mixer: dict, out_file: str, dtype:str):
     ds = gdal.Open(temp_file)
     
     options = gdal.TranslateOptions(format = 'COG',creationOptions = ["COMPRESS=LZW"])
+    ds = gdal.Translate(destName=out_file, srcDS=ds, options=options)
+    ds = None
+    
+    os.remove(temp_file)
+
+def arrays_to_cog(arrs: list, coords: list, mixer: dict, out_file: str, dtype:str):
+    """
+    Params
+    ---
+    arr: np.ndarray
+        input (H,W,C) array to be converted to raster
+    mixer_file: dict
+        dictionary containing image dimension and spatial reference metadata required by rasterio.write
+    out_file: str
+        file path to destination raster file
+    dtype: str
+        output dtype accepted by rasterio.write (e.g., 'uint16', 'int32', 'float32', 'float64')
+    
+    Return
+    ---
+    None: writes raster data to destination file
+    """
+    C = np.load(arrs[0]).shape[-1]
+    meta = {
+        'driver':'GTiff',
+        'width':round(mixer['cols']),
+        'height':round(mixer['rows']),
+        'count':C,
+        'dtype':dtype,
+        'affine':rio.Affine(*mixer['transform'][0:6]),
+        'crs':mixer['crs'],
+        'nodata':255
+    }
+    band_list = list(range(1,C+1))
+    temp_file = out_file.replace(".tif","_temp.tif")
+    with rio.Env(CHECK_DISK_FREE_SPACE=False):
+        with rio.open(temp_file, mode = 'w', **meta) as dst:
+            for f in arrs[0:4]:
+                arr = np.moveaxis(np.load(f), -1, 0)
+                indices = Path(f).stem.split('_') # X,Y tuple
+                window = Window(
+                    row_off = int(indices[1]), #Y 
+                    col_off = int(indices[0]), #X
+                    width = mixer['size'],
+                    height = mixer['size'])
+                src.write(arr, window = window, indexes = band_list)
+
+    ds = gdal.Open(temp_file)
+    
+    options = gdal.TranslateOptions(format = 'COG',creationOptions = ["COMPRESS=LZW"])
+    # if we want to write straight to blob, use /vsiaz/container/path
+    # after setting environmental AZURE_STORAGE_CONNECTION_STRING variable
     ds = gdal.Translate(destName=out_file, srcDS=ds, options=options)
     ds = None
     
