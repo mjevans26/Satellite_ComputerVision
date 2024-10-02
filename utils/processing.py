@@ -1025,7 +1025,7 @@ class HybridDataGenerator(UNETDataGenerator):
 
             # rearrange arrays from (B, T, C, H, W) -> (B, T, H, W, C) expected by model
             reshaped = np.moveaxis(array, source = 2, destination = 4)
-            normalized = normalize_timeseries(reshaped, maxval = normalize, axis = 1)
+            normalized = normalize_timeseries(reshaped, maxval = rescale_val, axis = 1)
             return normalized
         except AssertionError as msg:
             print(msg)

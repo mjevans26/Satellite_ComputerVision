@@ -24,8 +24,10 @@ def generate_chip_indices(H, W, buff = 128, kernel = 256):
   """
   Parameters
   ---
-    arr: np.ndarray
-      3D array (H, W, C) for which indices should be generated
+    H: int
+      height dimension in pixels over which indices should be generated
+    W: int
+      width dimension in pixels over which indices should be generated      
     buff: int
       size of pixels to be trimmed from each side of chip
     kernel: int
