@@ -11,6 +11,7 @@ import io
 
 import xarray as xr
 import rasterio as rio
+from rioxarray.merge import merge_arrays
 import rioxarray
 from pyproj import CRS
 
@@ -118,8 +119,20 @@ def get_naip_stac(aoi, dates):
     # organize all naip images overlapping box into a vrt stac
 
     crss = np.unique(np.array([item['properties']['proj:epsg'] for item in filtered]))
-    naip = stac_vrt.build_vrt(filtered, block_width=512, block_height=512, data_type="Byte")
-    return naip
+    rioxrs = []
+    for i, crs in enumerate(crss):
+        subset = [item for item in filtered if item['properties']['proj:epsg'] == crs]
+        vrt = stac_vrt.build_vrt(subset, block_width=512, block_height=512, data_type="Byte")
+        rioxr = rioxarray.open_rasterio(vrt, lock = False)
+        if i > 0:
+            reprojected = rioxr.rio.reproject(f"EPSG:{crss[0]}")
+            rioxrs.append(reprojected)
+        else:
+            rioxrs.append(rioxr)
+    merged = merge_arrays(rioxrs)
+    # vrt = stac_vrt.build_vrt(filtered, block_width=512, block_height=512, data_type="Byte")
+    # rioxr = rioxarray.open_rasterio(vrt, lock = False)
+    return merged
 
 def get_hag_stac(aoi, dates, crs = None, resolution = None):
     catalog = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
