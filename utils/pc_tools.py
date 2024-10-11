@@ -11,6 +11,7 @@ import io
 
 import xarray as xr
 import rasterio as rio
+from rasterio.vrt import WarpedVRT
 from rioxarray.merge import merge_arrays
 import rioxarray
 from pyproj import CRS
@@ -107,25 +108,28 @@ def get_naip_stac(aoi, dates):
         limit = 500
     )
 
-    items = planetary_computer.sign(search.get_all_items())
+    items = planetary_computer.sign(search.item_collection_as_dict())
     # items is a pystac ItemCollection
-    items2 = items.to_dict()
-    features = items2['features'] 
+    # items2 = items.to_dict()
+    features = items['features'] 
     dates = [x['properties']['datetime'] for x in features]
     years = [date[0:4] for date in dates]
     years.sort()
     filtered = [x for x in features if x['properties']['datetime'][0:4] == years[-1]]
 
     # organize all naip images overlapping box into a vrt stac
-
-    crss = np.unique(np.array([item['properties']['proj:epsg'] for item in filtered]))
+    crs_list = np.array([item['properties']['proj:epsg'] for item in filtered])
+    crss = np.unique(crs_list)
+    crs_counts = [len(crs_list[crs_list == crs]) for crs in crss]
+    print('naip crss', crss)
     rioxrs = []
-    for i, crs in enumerate(crss):
-        subset = [item for item in filtered if item['properties']['proj:epsg'] == crs]
-        vrt = stac_vrt.build_vrt(subset, block_width=512, block_height=512, data_type="Byte")
-        rioxr = rioxarray.open_rasterio(vrt, lock = False)
-        if i > 0:
-            reprojected = rioxr.rio.reproject(f"EPSG:{crss[0]}")
+    minority_idx = np.argmin(crs_counts)
+    majority_idx = np.argmax(crs_counts)
+    urls = [item['assets']['image']['href'] for item in filtered]
+    for i, url in enumerate(urls):
+        rioxr = rioxarray.open_rasterio(url)
+        if crs_list[i] == crss[minority_idx]:
+            reprojected = rioxr.rio.reproject(f'EPSG:{crss[majority_idx]}')
             rioxrs.append(reprojected)
         else:
             rioxrs.append(rioxr)
