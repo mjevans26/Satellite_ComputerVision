@@ -20,7 +20,7 @@ import random
 from osgeo import gdal
 rio.Env(CHECK_DISK_FREE_SPACE=False)
 
-def generate_chip_indices(arr, buff = 128, kernel = 256):
+def generate_chip_indices(H, W, buff = 128, kernel = 256):
   """
   Parameters
   ---
@@ -34,7 +34,6 @@ def generate_chip_indices(arr, buff = 128, kernel = 256):
   ---
     list::np.ndarray: list containing (y,x) index of chips upper left corner
   """
-  H, W, C = arr.shape
   side = (2*buff) + kernel
   x_buff = y_buff = buff
   
