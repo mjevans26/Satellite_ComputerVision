@@ -12,6 +12,8 @@ import io
 from osgeo import gdal
 import xarray as xr
 import rasterio as rio
+from rasterio.vrt import WarpedVRT
+from rioxarray.merge import merge_arrays
 import rioxarray
 from rioxarray.merge import merge_arrays
 from pyproj import CRS
@@ -109,7 +111,10 @@ def get_naip_stac(aoi, dates):
     )
 
     items = planetary_computer.sign(search.item_collection_as_dict())
+    items = planetary_computer.sign(search.item_collection_as_dict())
     # items is a pystac ItemCollection
+    # items2 = items.to_dict()
+    features = items['features'] 
     # items2 = items.to_dict()
     features = items['features'] 
     dates = [x['properties']['datetime'] for x in features]
