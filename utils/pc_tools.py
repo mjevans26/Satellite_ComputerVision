@@ -15,6 +15,7 @@ import rasterio as rio
 from rasterio.vrt import WarpedVRT
 from rioxarray.merge import merge_arrays
 import rioxarray
+from rioxarray.merge import merge_arrays
 from pyproj import CRS
 
 import planetary_computer
@@ -110,7 +111,10 @@ def get_naip_stac(aoi, dates):
     )
 
     items = planetary_computer.sign(search.item_collection_as_dict())
+    items = planetary_computer.sign(search.item_collection_as_dict())
     # items is a pystac ItemCollection
+    # items2 = items.to_dict()
+    features = items['features'] 
     # items2 = items.to_dict()
     features = items['features'] 
     dates = [x['properties']['datetime'] for x in features]
@@ -146,7 +150,7 @@ def get_naip_stac(aoi, dates):
         naipVRT = None
         naipImg = rioxarray.open_rasterio('./naiptmp.vrt', lock = False)
         return naipImg
-    
+
 def get_hag_stac(aoi, dates, crs = None, resolution = None):
     catalog = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
     search = catalog.search(
