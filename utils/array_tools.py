@@ -205,7 +205,7 @@ def aug_array_morph(img: np.ndarray) -> np.ndarray:
 
 def normalize_timeseries(arr, maxval = 10000, minval = 0, axis = -1, e = 0.00001):
   # normalize band values across timesteps
-  normalized = (arr-minval)/(maxval-minval)
+  normalized = (arr-minval)/(maxval-minval+e)
 #   mn = np.nanmean(arr, axis = axis, keepdims = True)
 #   std = np.nanstd(arr, axis = axis, keepdims = True)
 #   normalized = (arr - mn)/(std+e)

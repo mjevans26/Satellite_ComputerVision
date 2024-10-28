@@ -495,12 +495,17 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         self.lc_trans = lc_transitions
         self.lu_trans = lu_transitions
         self.indexes = np.arange(len(self.naipfiles))
+        self.mask = False
         self.on_epoch_end()
 
         # do an initial shuffle for cases where the generator is called fresh at the start of each epoch
         if self.shuffle == True:
             print('shuffling')
             np.random.shuffle(self.indexes)
+
+        if self.to_fit == True:
+            print('masking on')
+            self.mask = True
 
     def __len__(self):
         """Denotes the number of batches per epoch
@@ -617,13 +622,13 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
 
     def _get_lidar_data(self, indexes):
         files_temp = [self.lidarfiles[k] for k in indexes]
-        lidar = self._get_unet_data(files_temp,True,rescale_val=100)
+        lidar = self._get_unet_data(files_temp,self.mask,rescale_val=100)
         if type(lidar) == np.ndarray:
             return lidar
 
     def _get_hag_data(self, indexes):
         files_temp = [self.hagfiles[k] for k in indexes]
-        hag = self._get_unet_data(files_temp, True, rescale_val=100)
+        hag = self._get_unet_data(files_temp, self.mask, rescale_val=100)
         if type(hag) == np.ndarray:
             return hag
         #else:
@@ -631,7 +636,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
 
     def _get_dem_data(self, indexes):
         files_temp = [self.demfiles[k] for k in indexes]
-        dem = self._get_unet_data(files_temp,True,rescale_val=2000.0)
+        dem = self._get_unet_data(files_temp,self.mask,rescale_val=2000.0)
         if type(dem) == np.ndarray:
            # we are going to use the min and max elevations across the chesapeake
           return dem
