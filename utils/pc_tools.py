@@ -111,10 +111,7 @@ def get_naip_stac(aoi, dates):
     )
 
     items = planetary_computer.sign(search.item_collection_as_dict())
-    items = planetary_computer.sign(search.item_collection_as_dict())
     # items is a pystac ItemCollection
-    # items2 = items.to_dict()
-    features = items['features'] 
     # items2 = items.to_dict()
     features = items['features'] 
     dates = [x['properties']['datetime'] for x in features]
@@ -128,28 +125,35 @@ def get_naip_stac(aoi, dates):
     crs_counts = [len(crs_list[crs_list == crs]) for crs in crss]
     print('naip crss', crss)
     if len(crss) > 1:
-        rioxrs = []
+        # rioxrs = []
         minority_idx = np.argmin(crs_counts)
         majority_idx = np.argmax(crs_counts)
-
-        for i, url in enumerate(urls):
-            rioxr = rioxarray.open_rasterio(url)
-            if crs_list[i] == crss[minority_idx]:
-                reprojected = rioxr.rio.reproject(f'EPSG:{crss[majority_idx]}')
-                rioxrs.append(reprojected)
-            else:
-                rioxrs.append(rioxr)
-        merged = merge_arrays(rioxrs)
-        return merged
+        majority_urls = [url for i, url in enumerate(urls) if crs_list[i] == crss[majority_idx]]
+        minority_urls = [url for i, url in enumerate(urls) if crs_list[i] == crss[minority_idx]]
+        print('minority urls', minority_urls)
+        minority_vrt = gdal.BuildVRT("./minority.vrt", minority_urls)
+        majority_vrt = gdal.BuildVRT("./majority.vrt", majority_urls)
+        warped_vrt = gdal.Warp("./warped.vrt", minority_vrt, format = 'vrt', dstSRS = f'EPSG:{crss[majority_idx]}')
+        naipVRT = gdal.BuildVRT('./naiptmp.vrt',  [warped_vrt, majority_vrt])
+        # naipVRT = None
+        # for i, url in enumerate(urls):
+        #     rioxr = rioxarray.open_rasterio(url)
+        #     if crs_list[i] == crss[minority_idx]:
+        #         reprojected = rioxr.rio.reproject(f'EPSG:{crss[majority_idx]}')
+        #         rioxrs.append(reprojected)
+        #     else:
+        #         rioxrs.append(rioxr)
+        # merged = merge_arrays(rioxrs)
+        # return merged
     else:
         # rioxrs = [rioxarray.open_rasterio(url, lock = False) for url in urls]
         # merged = merge_arrays(rioxrs)
         # vrt = stac_vrt.build_vrt(filtered, block_width=512, block_height=512, data_type="Byte")
-        # rioxr = rioxarray.open_rasterio(vrt, lock = False)
+        # naipImg = rioxarray.open_rasterio(vrt, lock = False)
         naipVRT = gdal.BuildVRT('./naiptmp.vrt', urls)
-        naipVRT = None
-        naipImg = rioxarray.open_rasterio('./naiptmp.vrt', lock = False)
-        return naipImg
+    naipVRT = None
+    naipImg = rioxarray.open_rasterio('./naiptmp.vrt', lock = False)
+    return naipImg
 
 def get_hag_stac(aoi, dates, crs = None, resolution = None):
     catalog = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
