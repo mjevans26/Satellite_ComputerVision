@@ -21,7 +21,7 @@ DIR = Path(os.path.relpath(ROOT, Path.cwd()))
 if str(DIR) not in sys.path:
     sys.path.append(str(DIR))
 
-from array_tools import merge_classes, normalize_array, rescale_array, aug_array_color, aug_array_morph, rearrange_timeseries, normalize_timeseries, make_harmonics
+from array_tools import merge_classes, normalize_array, rescale_array, aug_array_color, aug_array_morph, rearrange_timeseries, split_timeseries, normalize_timeseries, make_harmonics
 
 def get_file_id(f:str, delim:str = '_', parts:slice = slice(3,5), flag=False):
     """Return a unique identifyier from a file name
@@ -556,12 +556,13 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
                         
                     mask_channel = np.zeros([cur_array.shape[1], cur_array.shape[2]])
                     # Create a random array to be used to replace the original data
-                    for arr_2d in cur_array:
-                        nans = np.isnan(arr_2d)
-                        bads = arr_2d < -5000
-                        mask_channel[nans==True] = 1
-                        mask_channel[bads==True] = 1
-                        arr_2d[mask_channel==1] = np.random.randn((mask_channel==1).sum())
+                    if self.to_fit:
+                        for arr_2d in cur_array:
+                            nans = np.isnan(arr_2d)
+                            bads = arr_2d < -5000
+                            mask_channel[nans==True] = 1
+                            mask_channel[bads==True] = 1
+                            arr_2d[mask_channel==1] = np.random.randn((mask_channel==1).sum())
                         # arr_2d[nans==True] = np.random.uniform()
                         #arr_2d[np.isnan(arr_2d)] = np.random.randn(len(arr_2d[np.isnan(arr_2d)]))
                     #print("AFTER FIX:",np.isnan(cur_array).sum())

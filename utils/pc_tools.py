@@ -302,7 +302,11 @@ def get_s1_stac(dates, aoi, epsg  = None, bands = ["vv", "vh"]):
         s1items,
         epsg = epsg,
         assets=bands,
-        resolution=10)
+        resolution=10,
+        gdal_env=stackstac.DEFAULT_GDAL_ENV.updated(
+            always=dict(GDAL_HTTP_MAX_RETRY=5, GDAL_HTTP_RETRY_DELAY=1)
+            )
+    )
 
     # # get spatial reference info
     # s1crs = s1Stac.attrs['crs']
@@ -365,7 +369,7 @@ def join_ssurgo(ssurgo_table, ssurgo_raster:np.ndarray):
     C,H,W = ssurgo_raster.shape
     # get the unique values and their indices from the raster so we can join to table data
     unique_mukeys, inverse = np.unique(ssurgo_raster, return_inverse=True) 
-    print('unique mukeys', unique_mukeys)
+    # print('\t\tJoining SSURGO Arrays. Unique mukeys', unique_mukeys)
     rearranged = ssurgo_table[['mukey', 'hydclprs', 'drclassdcd', 'flodfreqdcd', 'wtdepannmin']].groupby('mukey').first().reindex(unique_mukeys, fill_value=np.nan).astype(np.float64)
     rearranged.loc[rearranged['wtdepannmin'] > 200.0, 'wtdepannmin'] = 200.0 # anything above 200 should be clipped to 200
     rearranged['wtdepannmin'] = rearranged['wtdepannmin'].fillna(200.0) # missing values are above 200 cm deep
