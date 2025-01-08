@@ -494,7 +494,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         self.moments = moments
         self.lc_trans = lc_transitions
         self.lu_trans = lu_transitions
-        self.indexes = np.arange(len(self.naipfiles))
+        self.indexes = np.arange(len(self.labelfiles))
         self.on_epoch_end()
 
         # do an initial shuffle for cases where the generator is called fresh at the start of each epoch
