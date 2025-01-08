@@ -181,17 +181,21 @@ def naip_mosaic(naips: list, crs: int):
     # reprojected = naipImage.rio.reproject('EPSG:4326')
     return(naipImage)
 
-def get_s2_stac(dates, aoi, cloud_thresh = 10, bands = ["B02", "B03", "B04", "B08"]):
+def get_s2_stac(dates, aoi, cloud_thresh = 10, bands = ["B02", "B03", "B04", "B08"], epsg = None):
     """from a pystac client return a stac of s2 imagery
 
     Parameters 
     ----
-    client: pystac_client.Client()
-        pystac catalog from which to retrieve assets
     dates: str
         start/end dates
-    bbox: tpl
-        [xmin, ymin, xmax, ymax]
+    aoi: shapely.geometry.Polygon
+        polygon defining area of search
+    cloud_thresh: int
+        maximum cloudy pixel percentage of s2 images to return
+    bands: list
+        asset (band) names to return and stack
+    epsg: int
+        epsg coordinate system to reproject s2 data to
     
     Return
     ---
@@ -210,23 +214,29 @@ def get_s2_stac(dates, aoi, cloud_thresh = 10, bands = ["B02", "B03", "B04", "B0
     )
 
     s2items = [item.to_dict() for item in list(search.get_items())]
-    s2 = s2items[0]
-    s2epsg = s2['properties']['proj:epsg']
-    s2Stac = (
-        stackstac.stack(
-            s2items,
-            epsg = s2epsg,
-            assets=bands,  # red, green, blue, nir
-            chunksize=4096,
-            resolution=10,
-        )
-        .where(lambda x: x > 0, other=np.nan)  # sentinel-2 uses 0 as nodata
-    )
+    if len(s2items) > 0:
+        s2 = s2items[0]
+        if epsg:
+            s2epsg = epsg
+        else:
+            s2epsg = s2['properties']['proj:epsg']
 
-    s2crs = s2Stac.attrs['crs']
-    s2projected = s2Stac.rio.set_crs(s2crs)
-    clipped = s2projected.rio.clip(geometries = [aoi], crs = 4326)
-    return clipped
+        s2Stac = (
+            stackstac.stack(
+                s2items,
+                epsg = s2epsg,
+                assets=bands,  # red, green, blue, nir
+                chunksize=4096,
+                resolution=10,
+            )
+            .where(lambda x: x > 0, other=np.nan)  # sentinel-2 uses 0 as nodata
+        )
+
+        s2crs = s2Stac.attrs['crs']
+        s2projected = s2Stac.rio.set_crs(s2crs)
+    else:
+        s2Stac = None   # clipped = s2projected.rio.clip(geometries = [aoi], crs = epsg)
+    return s2Stac
 
 def get_ssurgo_stac(aoi, epsg)-> np.ndarray:
     """Sample ssurgo data in raster format
