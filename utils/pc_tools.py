@@ -9,9 +9,13 @@ from os.path import join
 from glob import glob
 import io
 
+from osgeo import gdal
 import xarray as xr
 import rasterio as rio
+from rasterio.vrt import WarpedVRT
+from rioxarray.merge import merge_arrays
 import rioxarray
+from rioxarray.merge import merge_arrays
 from pyproj import CRS
 
 import planetary_computer
@@ -106,20 +110,50 @@ def get_naip_stac(aoi, dates):
         limit = 500
     )
 
-    items = planetary_computer.sign(search.get_all_items())
+    items = planetary_computer.sign(search.item_collection_as_dict())
     # items is a pystac ItemCollection
-    items2 = items.to_dict()
-    features = items2['features'] 
+    # items2 = items.to_dict()
+    features = items['features'] 
     dates = [x['properties']['datetime'] for x in features]
     years = [date[0:4] for date in dates]
     years.sort()
     filtered = [x for x in features if x['properties']['datetime'][0:4] == years[-1]]
-
+    urls = [item['assets']['image']['href'] for item in filtered]
     # organize all naip images overlapping box into a vrt stac
-
-    crss = np.unique(np.array([item['properties']['proj:epsg'] for item in filtered]))
-    naip = stac_vrt.build_vrt(filtered, block_width=512, block_height=512, data_type="Byte")
-    return naip
+    crs_list = np.array([item['properties']['proj:epsg'] for item in filtered])
+    crss = np.unique(crs_list)
+    crs_counts = [len(crs_list[crs_list == crs]) for crs in crss]
+    print('naip crss', crss)
+    if len(crss) > 1:
+        # rioxrs = []
+        minority_idx = np.argmin(crs_counts)
+        majority_idx = np.argmax(crs_counts)
+        majority_urls = [url for i, url in enumerate(urls) if crs_list[i] == crss[majority_idx]]
+        minority_urls = [url for i, url in enumerate(urls) if crs_list[i] == crss[minority_idx]]
+        print('minority urls', minority_urls)
+        minority_vrt = gdal.BuildVRT("./minority.vrt", minority_urls)
+        majority_vrt = gdal.BuildVRT("./majority.vrt", majority_urls)
+        warped_vrt = gdal.Warp("./warped.vrt", minority_vrt, format = 'vrt', dstSRS = f'EPSG:{crss[majority_idx]}')
+        naipVRT = gdal.BuildVRT('./naiptmp.vrt',  [warped_vrt, majority_vrt])
+        # naipVRT = None
+        # for i, url in enumerate(urls):
+        #     rioxr = rioxarray.open_rasterio(url)
+        #     if crs_list[i] == crss[minority_idx]:
+        #         reprojected = rioxr.rio.reproject(f'EPSG:{crss[majority_idx]}')
+        #         rioxrs.append(reprojected)
+        #     else:
+        #         rioxrs.append(rioxr)
+        # merged = merge_arrays(rioxrs)
+        # return merged
+    else:
+        # rioxrs = [rioxarray.open_rasterio(url, lock = False) for url in urls]
+        # merged = merge_arrays(rioxrs)
+        # vrt = stac_vrt.build_vrt(filtered, block_width=512, block_height=512, data_type="Byte")
+        # naipImg = rioxarray.open_rasterio(vrt, lock = False)
+        naipVRT = gdal.BuildVRT('./naiptmp.vrt', urls)
+    naipVRT = None
+    naipImg = rioxarray.open_rasterio('./naiptmp.vrt', lock = False)
+    return naipImg
 
 def get_hag_stac(aoi, dates, crs = None, resolution = None):
     catalog = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
@@ -235,8 +269,117 @@ def get_s2_stac(dates, aoi, cloud_thresh = 10, bands = ["B02", "B03", "B04", "B0
         s2crs = s2Stac.attrs['crs']
         s2projected = s2Stac.rio.set_crs(s2crs)
     else:
-        s2Stac = None   # clipped = s2projected.rio.clip(geometries = [aoi], crs = epsg)
+        # clipped = s2projected.rio.clip(geometries = [aoi], crs = epsg)
+        s2Stac = None   
     return s2Stac
+
+def get_s1_stac(dates, aoi, epsg  = None, bands = ["vv", "vh"]):
+    """from a pystac client return a stac of s2 imagery
+
+    Parameters 
+    ----
+    client: pystac_client.Client()
+        pystac catalog from which to retrieve assets
+    dates: str
+        start/end dates
+    bbox: tpl
+        [xmin, ymin, xmax, ymax]
+    
+    Return
+    ---
+    stackstac.stac()
+    """
+    # connect to the planetary computer catalog
+    catalog = pystac_client.Client.open(
+        "https://planetarycomputer.microsoft.com/api/stac/v1",
+        modifier = planetary_computer.sign_inplace)
+
+    search = catalog.search(
+        datetime = dates,
+        intersects = aoi,
+        collections=["sentinel-1-rtc"],
+        query={"sar:polarizations": {"eq": ['VV', 'VH']},
+                'sar:instrument_mode': {"eq": 'IW'},
+                'sat:orbit_state': {"eq": 'ascending'}
+                }
+    )
+
+    s1items = search.item_collection()
+    if not epsg:
+        s1 = s1items[0]
+        epsg = s1.properties['proj:epsg']
+    s1Stac = stackstac.stack(
+        s1items,
+        epsg = epsg,
+        assets=bands,
+        resolution=10,
+        gdal_env=stackstac.DEFAULT_GDAL_ENV.updated(
+            always=dict(GDAL_HTTP_MAX_RETRY=5, GDAL_HTTP_RETRY_DELAY=1)
+            )
+    )
+
+    # # get spatial reference info
+    # s1crs = s1Stac.attrs['crs']
+    # s1transform = s1Stac.attrs['transform']
+    # s1res = s1transform[0]
+
+    # s1projected = s1Stac.rio.set_crs(s1crs)
+    # clipped = s1projected.rio.clip(geometries = [aoi], crs = 4326)
+    return s1Stac
+
+def get_s1_stac(dates, aoi, epsg  = None, bands = ["vv", "vh"]):
+    """from a pystac client return a stac of s2 imagery
+
+    Parameters 
+    ----
+    client: pystac_client.Client()
+        pystac catalog from which to retrieve assets
+    dates: str
+        start/end dates
+    bbox: tpl
+        [xmin, ymin, xmax, ymax]
+    
+    Return
+    ---
+    stackstac.stac()
+    """
+    # connect to the planetary computer catalog
+    catalog = pystac_client.Client.open(
+        "https://planetarycomputer.microsoft.com/api/stac/v1",
+        modifier = planetary_computer.sign_inplace)
+
+    search = catalog.search(
+        datetime = dates,
+        intersects = aoi,
+        collections=["sentinel-1-rtc"],
+        query={"sar:polarizations": {"eq": ['VV', 'VH']},
+                'sar:instrument_mode': {"eq": 'IW'},
+                'sat:orbit_state': {"eq": 'ascending'}
+                }
+    )
+
+    s1items = search.item_collection()
+    if not epsg:
+        s1 = s1items[0]
+        epsg = s1.properties['proj:epsg']
+    s1Stac = stackstac.stack(
+        s1items,
+        epsg = epsg,
+        assets=bands,
+        resolution=10,
+        gdal_env=stackstac.DEFAULT_GDAL_ENV.updated(
+            always=dict(GDAL_HTTP_MAX_RETRY=5, GDAL_HTTP_RETRY_DELAY=1)
+            )
+    )
+
+    # # get spatial reference info
+    # s1crs = s1Stac.attrs['crs']
+    # s1transform = s1Stac.attrs['transform']
+    # s1res = s1transform[0]
+
+    # s1projected = s1Stac.rio.set_crs(s1crs)
+    # clipped = s1projected.rio.clip(geometries = [aoi], crs = 4326)
+    return s1Stac
 
 def get_ssurgo_stac(aoi, epsg)-> np.ndarray:
     """Sample ssurgo data in raster format
@@ -290,7 +433,7 @@ def join_ssurgo(ssurgo_table, ssurgo_raster:np.ndarray):
     C,H,W = ssurgo_raster.shape
     # get the unique values and their indices from the raster so we can join to table data
     unique_mukeys, inverse = np.unique(ssurgo_raster, return_inverse=True) 
-    print('unique mukeys', unique_mukeys)
+    # print('\t\tJoining SSURGO Arrays. Unique mukeys', unique_mukeys)
     rearranged = ssurgo_table[['mukey', 'hydclprs', 'drclassdcd', 'flodfreqdcd', 'wtdepannmin']].groupby('mukey').first().reindex(unique_mukeys, fill_value=np.nan).astype(np.float64)
     rearranged.loc[rearranged['wtdepannmin'] > 200.0, 'wtdepannmin'] = 200.0 # anything above 200 should be clipped to 200
     rearranged['wtdepannmin'] = rearranged['wtdepannmin'].fillna(200.0) # missing values are above 200 cm deep
