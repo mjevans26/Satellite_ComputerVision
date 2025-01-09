@@ -755,8 +755,10 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             return xData
 
 class SiameseDataGenerator(UNETDataGenerator):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, beforefiles, afterfiles, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.beforefiles = beforefiles
+        self.afterfiles = afterfiles
 
         # do an initial shuffle for cases where the generator is called fresh at the start of each epoch
         if self.shuffle == True:
@@ -797,6 +799,26 @@ class SiameseDataGenerator(UNETDataGenerator):
         except AssertionError:
             return None
 
+    def _get_before_data(self, indexes):
+        files_temp = [self.beforefiles[k] for k in indexes]
+        s2 = self._get_unet_data(files_temp,rescale_val=10000.0)
+        if type(s2) == np.ndarray:
+            if self.to_fit:
+                recolored = aug_array_color(s2)
+                return recolored
+            else:
+                return s2
+    
+    def _get_after_data(self, indexes):
+        files_temp = [self.afterfiles[k] for k in indexes]
+        s2 = self._get_unet_data(files_temp,rescale_val=10000.0)
+        if type(s2) == np.ndarray:
+            if self.to_fit:
+                recolored = aug_array_color(s2)
+                return recolored
+            else:
+                return s2
+                        
     def __getitem__(self, index):
         """Generate one batch of data
 
@@ -806,23 +828,29 @@ class SiameseDataGenerator(UNETDataGenerator):
         # Generate indexes of the batch
         indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
 
-        s2Data = self._get_s2_data(indexes)
+        befData = self._get_before_data(indexes)
+        
+        aftData = self._get_after_data(indexes)
 
         labels = self._process_y(indexes)
 
         # perform morphological augmentation - expects a 3D (H, W, C) image array
-        stacked = np.concatenate([s2Data, labels], axis = -1)
-        morphed = aug_array_morph(stacked)
-        # print('augmented max', np.nanmax(augmented, axis = (0,1,2)))
-
-        feats_b = morphed[:,:,:,0:self.n_channels]
-        feats_a = morphed[:,:,:,self.n_channels:-1]
-        labels = morphed[:,:,:,-1:]
-
-        if self.to_fit:
-            return [feats_b, feats_a], labels
+        if any([befData is None, aftData is None, labels is None]):
+            print('nonetype in data, skipping')
+            pass
         else:
-            return [feats_b, feats_a]
+            stacked = np.concatenate([befData, aftData, labels], axis = -1)
+            morphed = aug_array_morph(stacked)
+            # print('augmented max', np.nanmax(augmented, axis = (0,1,2)))
+
+            feats_b = morphed[:,:,:,0:self.n_channels]
+            feats_a = morphed[:,:,:,self.n_channels:-1]
+            labels = morphed[:,:,:,-1:]
+
+            if self.to_fit:
+                return [feats_b, feats_a], labels
+            else:
+                return [feats_b, feats_a]
 
 
 class LSTMDataGenerator(tf.keras.utils.Sequence):
