@@ -835,10 +835,7 @@ class SiameseDataGenerator(UNETDataGenerator):
         labels = self._process_y(indexes)
 
         # perform morphological augmentation - expects a 3D (H, W, C) image array
-        if any([befData is None, aftData is None, labels is None]):
-            print('nonetype in data, skipping')
-            pass
-        else:
+        if all([befData is not None, aftData is not None, labels is not None]):
             stacked = np.concatenate([befData, aftData, labels], axis = -1)
             morphed = aug_array_morph(stacked)
             # print('augmented max', np.nanmax(augmented, axis = (0,1,2)))
@@ -851,6 +848,10 @@ class SiameseDataGenerator(UNETDataGenerator):
                 return [feats_b, feats_a], labels
             else:
                 return [feats_b, feats_a]
+        else:
+            print('nonetype in data, skipping')
+            index += 1
+            return self.__getitem__(index)
 
 
 class LSTMDataGenerator(tf.keras.utils.Sequence):
