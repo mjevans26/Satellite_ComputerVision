@@ -316,7 +316,7 @@ def decoder_block(input_tensor, concat_tensor, num_filters, up_size = (2,2)):
     return decoder
 
 ## MODEL CONSTRUCTION
-def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2]):
+def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2], dropout = None):
     """Create U-Net layers
 
     Params
@@ -327,6 +327,8 @@ def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors =
         number of filters in each encoder layer
     factors: list[int]
         down/upsampling factor in each encoder/decoder layer. must be same length as filters
+    dropout: float
+        optional dropout rate
 
     Return
     ---
@@ -343,6 +345,10 @@ def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors =
         if i == 0:
             encoder = encoder_block(filt, pool_size = (factor, factor), name = f'encoder_{i}')
             encoder_pool, encoded = encoder(input_tensor)
+            if dropout is not None:
+                encoded = layers.SpatialDropout2D(dropout)(encoded)
+            else:
+                encoded = encoded
         else:
             encoder = encoder_block(filt, pool_size = (factor, factor), name = f'encoder_{i}')
             encoder_pool, encoded = encoder(encoder_pool)
@@ -351,7 +357,10 @@ def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors =
 
     conv = conv_block(filters[-1]*2)
     center = conv(net[f'encoder_pool{levels-1}'])
-
+    if dropout is not None:
+        decoder_input = layers.Dropout(dropout)(center)
+    else:
+        decoder_input = center
     # for i in range(1, levels+1):
     for j in range(levels-1, -1, -1):
         # j = levels - i
@@ -359,7 +368,7 @@ def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors =
         filt = filters[j]
         if j == levels-1:
         # if i == 1:
-            decoder = decoder_block(center, net[f'encoder{j}'], filt, up_size = (factor, factor))
+            decoder = decoder_block(decoder_input, net[f'encoder{j}'], filt, up_size = (factor, factor))
         else:
             decoder = decoder_block(decoder, net[f'encoder{j}'], filt, up_size = (factor, factor))
 
@@ -378,14 +387,18 @@ def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors =
     # decoder0 = decoder_block(decoder1, encoder0, 32) # 256
     # return decoder0
 
-def get_unet_model(nclasses, nchannels, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2], bias = None):
+def get_unet_model(nclasses, nchannels, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2], bias = None, dropout = None):
     if bias is not None:
         bias = tf.keras.initializers.Constant(bias)
     inputs = layers.Input(shape = [None, None, nchannels])
     print("INPUTS:",inputs)
-    decoder = build_unet_layers(inputs, filters, factors)
+    decoder = build_unet_layers(inputs, filters, factors, dropout = dropout)
     print("DECODER:",decoder)
-    logits = layers.Conv2D(nclasses, (1,1), activation = 'softmax', bias_initializer = bias, name = 'probs')(decoder)
+    if dropout is not None:
+        logit_input = layers.SpatialDropout2D(dropout)(decoder)
+    else:
+        logit_input = decoder
+    logits = layers.Conv2D(nclasses, (1,1), activation = 'softmax', bias_initializer = bias, name = 'probs')(logit_input)
     classes = layers.Lambda(lambda x: tf.cast(tf.math.argmax(x, axis = -1), dtype = tf.int32), name = 'classes')(logits)
     model = models.Model(inputs = inputs, outputs = [logits, classes])
     print("MODEL",model)
@@ -646,7 +659,7 @@ def make_siamese_unet(n_channels, filters, factors, bias = None, class_thresh = 
     return m
 
 ### LSTM MODEL TOOLS ###
-def build_lstm_layers(input_tensor, return_sequences = False):
+def build_lstm_layers(input_tensor, return_sequences = False, dropout = None):
     """Build the layers of an LSTM Keras model
 
     Params
@@ -657,6 +670,8 @@ def build_lstm_layers(input_tensor, return_sequences = False):
         number of timesteps in lstm input
     n_classes: int
         number of output classes
+    dropout: float
+        optional dropout rate
 
     Return
     ---
@@ -677,6 +692,8 @@ def build_lstm_layers(input_tensor, return_sequences = False):
 
     normalized = layers.BatchNormalization(name = 'batch_norm')(feats)
     activated = layers.Activation('relu')(normalized)
+    if dropout is not None:
+        activated = layers.SpatialDropout2D(dropout)(activated)
 
     feats2 = layers.ConvLSTM2D(
         filters = 64,
@@ -695,7 +712,7 @@ def build_lstm_layers(input_tensor, return_sequences = False):
 
     return activated2
 
-def get_lstm_model(n_channels, n_classes, n_time, optim, metrics, loss, activation = layers.ReLU(max_value = 2.0)):
+def get_lstm_model(n_channels, n_classes, n_time, optim, metrics, loss, activation = layers.ReLU(max_value = 2.0), dropout = None):
     """ Build and complie an LSTM model in Keras
 
     Params
@@ -717,8 +734,12 @@ def get_lstm_model(n_channels, n_classes, n_time, optim, metrics, loss, activati
         keras.models.Model: lstm model compiled with provided optimizer, metrics, and loss
     """
     lstm_input = layers.Input(n_time, None, None, n_channels)
-    lstm_output = build_lstm_layers(lstm_input)
-    dense_layer = layers.Conv2D(n_classes, [1,1], data_format = 'channels_last', padding = 'same')(lstm_output)
+    lstm_output = build_lstm_layers(lstm_input, dropout = dropout)
+    if dropout is not None:
+        dense_input = layers.SpatialDropout2D(dropout)(lstm_output)
+    else:
+        dense_input = lstm_output
+    dense_layer = layers.Conv2D(n_classes, [1,1], data_format = 'channels_last', padding = 'same')(dense_input)
     activation = activations(dense_layer)
     model = models.Model(inputs = lstm_input, outputs = activation)
     model.compile(
