@@ -812,7 +812,7 @@ def get_lstm_autoencoder(
     #     )
     return model
 
-def get_hybrid_model(unet_dim, lstm_dim, n_classes, filters = [32, 64, 128, 256], factors = [3,2,2,2], compile_model = False, optim = None, metrics = None, loss = None):
+def get_hybrid_model(unet_dim, lstm_dim, n_classes, filters = [32, 64, 128, 256], factors = [3,2,2,2], dropout = None, compile_model = False, optim = None, metrics = None, loss = None):
     """Build and compile a hybrid U-Net/LSTM model in Keras
 
     Params
@@ -825,6 +825,8 @@ def get_hybrid_model(unet_dim, lstm_dim, n_classes, filters = [32, 64, 128, 256]
         number of timesteps in lstm input
     n_classes: int
         number of possible output classes
+    dropout: float
+        optional dropout rate
     optim: keras.optimizer
     metrics: keras.metrics
     loss: keras.loss
@@ -835,15 +837,19 @@ def get_hybrid_model(unet_dim, lstm_dim, n_classes, filters = [32, 64, 128, 256]
     """
     unet_input = layers.Input(shape=(None, None, unet_dim[-1]))
     print('hybrid model filters:', filters)
-    unet_output = build_unet_layers(unet_input, filters = filters, factors = factors)
+    unet_output = build_unet_layers(unet_input, filters = filters, factors = factors, dropout = dropout)
     unet_dense = layers.Conv2D(n_classes, [1,1], activation = 'relu', data_format = 'channels_last', padding = 'same')(unet_output)
     lstm_input = layers.Input(shape=(lstm_dim[0], None, None, lstm_dim[-1]))
-    lstm_output = build_lstm_layers(lstm_input)
+    lstm_output = build_lstm_layers(lstm_input, dropout = dropout)
     lstm_dense = layers.Conv2D(n_classes, [1,1], activation = 'relu', data_format = 'channels_last', padding = 'same')(lstm_output) # match n_filters from last unet layer
     # lstm_resized = layers.Resizing(unet_dim[0], unet_dim[1], 'nearest')(lstm_dense) # resizing raw lstm was blowing memory
     lstm_resized = tf.image.resize(lstm_dense, [unet_dim[0], unet_dim[1]], method = 'nearest')
     concat_layer = layers.concatenate([lstm_resized, unet_dense], axis=-1)
-    concat_dense = layers.Conv2D(n_classes, [1,1], activation = 'softmax', data_format = 'channels_last', padding = 'same', name = 'probabilities')(concat_layer)
+    if dropout is not None:
+        dense_input = layers.SpatialDropout2D(dropout)(concat_layer)
+    else:
+        dense_input = concat_layer
+    concat_dense = layers.Conv2D(n_classes, [1,1], activation = 'softmax', data_format = 'channels_last', padding = 'same', name = 'probabilities')(dense_input)
     model = models.Model(inputs = [unet_input, lstm_input], outputs = concat_dense)
 
     if compile_model:
