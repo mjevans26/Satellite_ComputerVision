@@ -21,7 +21,7 @@ DIR = Path(os.path.relpath(ROOT, Path.cwd()))
 if str(DIR) not in sys.path:
     sys.path.append(str(DIR))
 
-from array_tools import merge_classes, normalize_array, rescale_array, aug_array_color, aug_array_morph, rearrange_timeseries, split_timeseries, normalize_timeseries, make_harmonics
+import array_tools
 
 def get_file_id(f:str, delim:str = '_', parts:slice = slice(3,5), flag=False):
     """Return a unique identifyier from a file name
@@ -602,7 +602,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         if type(naip) == np.ndarray:
 
             if self.to_fit:
-                recolored = aug_array_color(naip)
+                recolored = array_tools.aug_array_color(naip)
                 return recolored
             return naip
         #else:
@@ -613,7 +613,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         s2 = self._get_unet_data(files_temp,rescale_val=10000.0)
         if type(s2) == np.ndarray:
             if self.to_fit:
-                recolored = aug_array_color(s2)
+                recolored = array_tools.aug_array_color(s2)
                 return recolored
             else:
                 return s2
@@ -663,7 +663,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
 
             # optionally reduce the number of classes
             if self.lc_trans:
-              merged_labels = merge_classes(cond_array = int_labels, trans = self.lc_trans, out_array = int_labels)
+              merged_labels = array_tools.merge_classes(cond_array = int_labels, trans = self.lc_trans, out_array = int_labels)
             else:
               merged_labels = int_labels
 
@@ -675,7 +675,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
                     assert len(lu_arrays) == self.batch_size
                     assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lu_arrays])
                     lu = np.stack(lu_arrays, axis = 0) #(B, C, H, W)
-                    y = merge_classes(cond_array = lu, trans = self.lu_trans, out_array = merged_labels)
+                    y = array_tools.merge_classes(cond_array = lu, trans = self.lu_trans, out_array = merged_labels)
                 except AssertionError:
                     return None
             else:
@@ -745,7 +745,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             labels = self._process_y(indexes)
             # perform morphological augmentation - expects a 3D (H, W, C) image array
             stacked = np.concatenate([xData, labels], axis = -1)
-            morphed = aug_array_morph(stacked)
+            morphed = array_tools.aug_array_morph(stacked)
             # print('augmented max', np.nanmax(augmented, axis = (0,1,2)))
 
             feats = morphed[:,:,:,0:self.n_channels]
@@ -959,7 +959,7 @@ class LSTMDataGenerator(tf.keras.utils.Sequence):
         # harmonized = add_harmonic(normalized)
         if self.to_fit:
             rearranged = rearrange_timeseries(normalized, self.n_channels)
-            feats, labels = split_timeseries(rearranged)
+            feats, labels = array_tools.split_timeseries(rearranged)
             # we can't have nans in label
             return feats, labels
         else:
@@ -1034,11 +1034,11 @@ class LSTMAutoencoderGenerator(LSTMDataGenerator):
             temporal_y = np.flip(feats, axis = 1) # reverse images along time dimension
             if self.add_harmonics:
                 starts = [x + start - self.n_timesteps for x in starts]
-                harmonics = make_harmonics(starts, self.n_timesteps, self.dim)
+                harmonics = array_tools.make_harmonics(starts, self.n_timesteps, self.dim)
             return [feats, harmonics], [temporal_y, y]
         else:
             if self.add_harmonics:
-                harmonics = make_harmonics(starts, self.n_timesteps, self.dim)
+                harmonics = array_tools.make_harmonics(starts, self.n_timesteps, self.dim)
             return [normalized, harmonics]
 
 class HybridDataGenerator(UNETDataGenerator):
@@ -1105,7 +1105,7 @@ class HybridDataGenerator(UNETDataGenerator):
         normalized = self._get_lstm_data(files_temp, rescale_val = 10000.0)
         if type(normalized) == np.ndarray:
             if self.to_fit:
-                recolored = aug_array_color(normalized)
+                recolored = array_tools.aug_array_color(normalized)
                 return recolored
             else:
                 return normalized
