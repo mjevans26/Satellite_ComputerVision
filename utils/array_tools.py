@@ -196,10 +196,14 @@ def aug_array_morph(img: np.ndarray) -> np.ndarray:
     h_axis = 1 if dims == 3 else 2
 
     # flip array up/down
-    x = np.flip(img, axis = v_axis)
+    if uniform(0,1) < 0.5:
+        x = np.flip(img, axis = v_axis)
+    else:
+        x = img
     # flip array left_right
-    x = np.flip(x, axis = h_axis)
-    x = np.rot90(x, uniform(0,4), axes = (v_axis, h_axis))
+    if uniform(0,1) < 0.5:
+        x = np.flip(x, axis = h_axis)
+    x = np.rot90(x, randint(0,4), axes = (v_axis, h_axis))
 
     return x
 
