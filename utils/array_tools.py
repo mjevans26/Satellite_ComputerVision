@@ -183,7 +183,7 @@ def aug_array_color(img: np.ndarray) -> np.ndarray:
     recolored = (img - ch_mean) * contra_mul + (ch_mean * bright_mul)
     return recolored
 
-def aug_array_morph(img: np.ndarray) -> np.ndarray:
+def aug_array_morph(img: np.ndarray, v_rand:bool = None, h_rand:bool = None, r_rand:int = None, return_tuple:bool = False) -> np.ndarray:
     """
     Perform morphological image augmentation on image array
     Parameters:
@@ -191,21 +191,26 @@ def aug_array_morph(img: np.ndarray) -> np.ndarray:
     Returns:
         np.ndarray: 3D channels last image array 
     """
-    dims = len(img.shape)
-    v_axis = 0 if dims == 3 else 1
-    h_axis = 1 if dims == 3 else 2
+    dims = list(range(len(img.shape)))
+    v_axis = dims[-3] # channels last, vertical axis is always third last
+    h_axis = dims[-2] # channels last, horizontal axis is always second last
+
+    if v_rand is None:
+        v_rand = uniform(0,1) < 0.5
+    if h_rand is None:
+        h_rand = uniform(0,1) < 0.5
+    if r_rand is None:
+        r_rand = randint(0,3)
 
     # flip array up/down
-    if uniform(0,1) < 0.5:
-        x = np.flip(img, axis = v_axis)
-    else:
-        x = img
-    # flip array left_right
-    if uniform(0,1) < 0.5:
-        x = np.flip(x, axis = h_axis)
-    x = np.rot90(x, randint(0,4), axes = (v_axis, h_axis))
+    x = np.flip(img, axis = v_axis) if v_rand else img
+    x = np.flip(x, axis = h_axis) if h_rand else x
+    x = np.rot90(x, r_rand, axes = (v_axis, h_axis))
 
-    return x
+    if return_tuple:
+        return x, v_rand, h_rand, r_rand
+    else:
+        return x
 
 def normalize_timeseries(arr, maxval = 10000, minval = 0, axis = -1, e = 0.00001):
   # normalize band values across timesteps
