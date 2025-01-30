@@ -285,7 +285,7 @@ class encoder_block(layers.Layer):
       pooled = self.pooler(encoded)
       return pooled, encoded
 
-def decoder_block(input_tensor, concat_tensor, num_filters, up_size = (2,2)):
+def decoder_block(input_tensor, concat_tensor, num_filters, up_size = (2,2), dropout = None):
     """U-Net upsampling decoder block tanspose_conv -> concatenate -> batch norm -> relu -> 2(conv -> batch norm -> relu)
 
     Params
@@ -307,6 +307,8 @@ def decoder_block(input_tensor, concat_tensor, num_filters, up_size = (2,2)):
     decoder = layers.concatenate([concat_tensor, decoder], axis=-1)
     decoder = layers.BatchNormalization()(decoder)
     decoder = layers.Activation('relu')(decoder)
+    if dropout is not None:
+        decoder = layers.SpatialDropout2D(dropout)(decoder)
     decoder = layers.Conv2D(num_filters, (3, 3), padding='same')(decoder)
     decoder = layers.BatchNormalization()(decoder)
     decoder = layers.Activation('relu')(decoder)
@@ -346,9 +348,9 @@ def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors =
             encoder = encoder_block(filt, pool_size = (factor, factor), name = f'encoder_{i}')
             encoder_pool, encoded = encoder(input_tensor)
             if dropout is not None:
-                encoded = layers.SpatialDropout2D(dropout)(encoded)
+                encoder_pool = layers.SpatialDropout2D(dropout)(encoder_pool)
             else:
-                encoded = encoded
+                encoder_pool = encoder_pool
         else:
             encoder = encoder_block(filt, pool_size = (factor, factor), name = f'encoder_{i}')
             encoder_pool, encoded = encoder(encoder_pool)
@@ -369,6 +371,8 @@ def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors =
         if j == levels-1:
         # if i == 1:
             decoder = decoder_block(decoder_input, net[f'encoder{j}'], filt, up_size = (factor, factor))
+        elif j == 0:
+            decoder = decoder_block(decoder, net[f'encoder{j}'], filt, up_size = (factor, factor), dropout = dropout)
         else:
             decoder = decoder_block(decoder, net[f'encoder{j}'], filt, up_size = (factor, factor))
 
@@ -693,7 +697,7 @@ def build_lstm_layers(input_tensor, return_sequences = False, dropout = None):
     normalized = layers.BatchNormalization(name = 'batch_norm')(feats)
     activated = layers.Activation('relu')(normalized)
     if dropout is not None:
-        activated = layers.SpatialDropout2D(dropout)(activated)
+        activated = layers.Dropout(dropout)(activated)
 
     feats2 = layers.ConvLSTM2D(
         filters = 64,
@@ -838,18 +842,18 @@ def get_hybrid_model(unet_dim, lstm_dim, n_classes, filters = [32, 64, 128, 256]
     unet_input = layers.Input(shape=(None, None, unet_dim[-1]))
     print('hybrid model filters:', filters)
     unet_output = build_unet_layers(unet_input, filters = filters, factors = factors, dropout = dropout)
+    if dropout is not None:
+        unet_output = layers.SpatialDropout2D(dropout)(unet_output)
     unet_dense = layers.Conv2D(n_classes, [1,1], activation = 'relu', data_format = 'channels_last', padding = 'same')(unet_output)
     lstm_input = layers.Input(shape=(lstm_dim[0], None, None, lstm_dim[-1]))
     lstm_output = build_lstm_layers(lstm_input, dropout = dropout)
+    if dropout is not None:
+        lstm_output = layers.SpatialDropout2D(dropout)(lstm_output)
     lstm_dense = layers.Conv2D(n_classes, [1,1], activation = 'relu', data_format = 'channels_last', padding = 'same')(lstm_output) # match n_filters from last unet layer
     # lstm_resized = layers.Resizing(unet_dim[0], unet_dim[1], 'nearest')(lstm_dense) # resizing raw lstm was blowing memory
     lstm_resized = tf.image.resize(lstm_dense, [unet_dim[0], unet_dim[1]], method = 'nearest')
     concat_layer = layers.concatenate([lstm_resized, unet_dense], axis=-1)
-    if dropout is not None:
-        dense_input = layers.SpatialDropout2D(dropout)(concat_layer)
-    else:
-        dense_input = concat_layer
-    concat_dense = layers.Conv2D(n_classes, [1,1], activation = 'softmax', data_format = 'channels_last', padding = 'same', name = 'probabilities')(dense_input)
+    concat_dense = layers.Conv2D(n_classes, [1,1], activation = 'softmax', data_format = 'channels_last', padding = 'same', name = 'probabilities')(concat_layer)
     model = models.Model(inputs = [unet_input, lstm_input], outputs = concat_dense)
 
     if compile_model:
