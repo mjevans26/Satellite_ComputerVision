@@ -754,7 +754,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         else:
             return xData
 
-class SiameseGenerator(UNETDataGenerator):
+class SiameseDataGenerator(UNETDataGenerator):
     def __init__(self, beforefiles, afterfiles, add_nan_mask: bool, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.beforefiles = beforefiles
