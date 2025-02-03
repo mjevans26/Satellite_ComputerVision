@@ -716,6 +716,60 @@ def build_lstm_layers(input_tensor, return_sequences = False, dropout = None):
 
     return activated2
 
+def build_lstm_layers2(input_tensor, return_sequences = False, return_state = False, dropout = None):
+    """Build the layers of an LSTM Keras model
+
+    Params
+    ---
+    n_channels: int
+        number of image bands in lstm input
+    n_time: int
+        number of timesteps in lstm input
+    n_classes: int
+        number of output classes
+    dropout: float
+        optional dropout rate
+
+    Return
+    ---
+    keras.model: compiled keras model with unet and lstm branches
+    """
+
+    seq, state_h, state_c = layers.ConvLSTM2D(
+        filters = 32,
+        kernel_size = [3,3],
+        # dilation_rate = (2,2),
+        padding = 'same',
+        data_format = 'channels_last',
+        activation = None,
+        return_sequences = True,
+        return_state = True,
+        name = 'conv_lstm'
+    )(input_tensor)
+
+    normalized = layers.BatchNormalization(name = 'batch_norm')(seq)
+    activated = layers.Activation('relu')(normalized)
+    if dropout is not None:
+        activated = layers.Dropout(dropout)(activated)
+
+    feats2 = layers.ConvLSTM2D(
+        filters = 32,
+        kernel_size = [3,3],
+        dilation_rate = (3,3),
+        padding= 'same',
+        data_format = 'channels_last',
+        activation = None,
+        return_sequences = return_sequences, # optionally return the last hidden state, or sequence of hidden states
+        return_state = False,
+        name = 'dilated_conv_lstm'
+    )(activated)
+
+    normalized2 = layers.BatchNormalization(name = 'batch_norm2')(feats2)
+
+    activated2 = layers.Activation('relu')(state_h + normalized2)
+
+    return activated2
+
 def get_lstm_model(n_channels, n_classes, n_time, optim, metrics, loss, activation = layers.ReLU(max_value = 2.0), dropout = None):
     """ Build and complie an LSTM model in Keras
 
@@ -754,7 +808,7 @@ def get_lstm_model(n_channels, n_classes, n_time, optim, metrics, loss, activati
     return model
 
 def get_lstm_autoencoder(
-    n_channels, n_time, n_classes, activation = layers.ReLU(max_value = 2.0), compile = False, optim = None, metrics = None, loss = None):
+    n_channels, n_time, n_classes, activation = layers.ReLU(max_value = 2.0, name = 'relu'), compile = False, optim = None, metrics = None, loss = None):
     """ Build and complie an LSTM autoencoder model in Keras
 
     Params
@@ -780,12 +834,12 @@ def get_lstm_autoencoder(
     sincos_input = layers.Input((None, None, 2), name = 'sincos_input')
 
     # build encoder LSTM
-    encoded = build_lstm_layers(lstm_input, return_sequences = False)
-    concatenated = layers.Concatenate(axis = -1, name = 'concat')([encoded, sincos_input])
+    encoded = build_lstm_layers2(lstm_input, return_sequences = False)
 
     # branch 1 - predicting reversed sequence
-    # repeated = layers.RepeatVector(n_time)(concatenated) 
-    repeated = tf.stack([concatenated]*n_time, axis = 1)
+    expanded = tf.expand_dims(encoded, axis = 1)
+    repeated = tf.repeat(expanded, n_time, 1) 
+
     decoded = layers.ConvLSTM2D(
         filters = 32,
         kernel_size = [3,3],
@@ -802,6 +856,7 @@ def get_lstm_autoencoder(
     temporal_activated = activation(temporal_decoded)
     
     # branch 1 - predicting next time step
+    concatenated = layers.Concatenate(axis = -1, name = 'concat')([encoded, sincos_input])
     single_dense = layers.Conv2D(
         n_classes, [1,1], data_format = 'channels_last', padding = 'same', name = 'single_dense')(concatenated)
     # fully_connected_layer = layers.Conv2D(n_classes, [1,1], data_format = 'channels_last', padding = 'same')(single_dense)
