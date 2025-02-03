@@ -192,17 +192,17 @@ def normalize_timeseries(arr, maxval = 10000, axis = -1, e = 0.00001):
   finite = np.where(np.isnan(normalized), 0.0, normalized)
   return finite
 
-def rearrange_timeseries(arr, nbands):
+def rearrange_timeseries(arr, nbands, time_dim = 1):
   # the number of time steps is in the 1st dimension if our data is (B, T, H, W, C)
-  timesteps = arr.shape[1]
+  timesteps = arr.shape[time_dim]
   # randomly pick one of the timesteps as the starting time
   starttime = randint(0, timesteps-1)
   # print('start', starttime)
   # grab all timesteps leading up to the timestep corresponding to our random first
   last = arr[:,0:starttime,:,:,:]
-  print('last shape', last.shape)
+#   print('last shape', last.shape)
   first = arr[:,starttime:timesteps,:,:,:]
-  print('start shape', first.shape)
+#   print('start shape', first.shape)
   rearranged = np.concatenate([first, last], axis = 1)
   rearranged.shape == arr.shape
 
@@ -934,6 +934,10 @@ class LSTMDataGenerator(tf.keras.utils.Sequence):
         if self.shuffle == True:
             np.random.shuffle(self.indexes)
 
+    def _load_numpy_data(self, files_temp):
+        arrays = [UNETDataGenerator.load_numpy_url(f) for f in files_temp]
+        return(arrays)
+    
     def __getitem__(self, index):
         """Generate one batch of data
 
@@ -946,7 +950,8 @@ class LSTMDataGenerator(tf.keras.utils.Sequence):
         # Find list of IDs
         files_temp = [self.files[k] for k in indexes]
         # arrays come from PC in (T, C, H, W) format
-        arrays = [np.load(file) for file in files_temp]
+        arrays = self._load_numpy_data(files_temp)
+
         trim = ((arrays[0].shape[2] - self.dim[0])//2, (arrays[0].shape[3] - self.dim[1])//2)
         # TEMPORARY FIX: drop the last image to give us a sereis of 5
         array = [arr[0:self.n_timesteps,:,trim[0]:-trim[0],trim[1]:-trim[1]] for arr in arrays]
@@ -1006,7 +1011,7 @@ class LSTMAutoencoderGenerator(LSTMDataGenerator):
         files_temp = [self.files[k] for k in indexes]
 
         # arrays come from PC in (T, C, H, W) format
-        arrays = [np.load(f) for f in files_temp]
+        arrays = self._load_numpy_data(files_temp)
 
         # creat a single (B, T, C, H, W) array
         batch = np.stack(arrays, axis = 0)
