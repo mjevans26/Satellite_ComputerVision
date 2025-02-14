@@ -8,6 +8,7 @@ import sys
 from os.path import join
 from glob import glob
 import io
+from datetime import datetime
 
 from osgeo import gdal
 import xarray as xr
@@ -215,6 +216,50 @@ def naip_mosaic(naips: list, crs: int):
     # reprojected = naipImage.rio.reproject('EPSG:4326')
     return(naipImage)
 
+def harmonize_to_old(data):
+    """
+    Harmonize new Sentinel-2 data to the old baseline.
+
+    Parameters
+    ----------
+    data: xarray.DataArray
+        A DataArray with four dimensions: time, band, y, x
+
+    Returns
+    -------
+    harmonized: xarray.DataArray
+        A DataArray with all values harmonized to the old
+        processing baseline.
+    """
+    cutoff = datetime(2022, 1, 25)
+    offset = 1000
+    bands = [
+        "B01",
+        "B02",
+        "B03",
+        "B04",
+        "B05",
+        "B06",
+        "B07",
+        "B08",
+        "B8A",
+        "B09",
+        "B10",
+        "B11",
+        "B12",
+    ]
+
+    old = data.sel(time=slice(cutoff))
+
+    to_process = list(set(bands) & set(data.band.data.tolist()))
+    new = data.sel(time=slice(cutoff, None)).drop_sel(band=to_process)
+
+    new_harmonized = data.sel(time=slice(cutoff, None), band=to_process).clip(offset)
+    new_harmonized -= offset
+
+    new = xr.concat([new, new_harmonized], "band").sel(band=data.band.data.tolist())
+    return xr.concat([old, new], dim="time")
+
 def get_s2_stac(dates, aoi, cloud_thresh = 10, bands = ["B02", "B03", "B04", "B08"], epsg = None):
     """from a pystac client return a stac of s2 imagery
 
@@ -266,12 +311,14 @@ def get_s2_stac(dates, aoi, cloud_thresh = 10, bands = ["B02", "B03", "B04", "B0
             .where(lambda x: x > 0, other=np.nan)  # sentinel-2 uses 0 as nodata
         )
 
+        harmonized = harmonize_to_old(s2Stac)
+
         s2crs = s2Stac.attrs['crs']
-        s2projected = s2Stac.rio.set_crs(s2crs)
+        s2projected = harmonized.rio.set_crs(s2crs)
     else:
         # clipped = s2projected.rio.clip(geometries = [aoi], crs = epsg)
-        s2Stac = None   
-    return s2Stac
+        harmonized = None   
+    return harmonized
 
 def get_s1_stac(dates, aoi, epsg  = None, bands = ["vv", "vh"]):
     """from a pystac client return a stac of s2 imagery
