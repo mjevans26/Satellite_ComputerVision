@@ -260,7 +260,7 @@ def get_s2_stac(dates, aoi, cloud_thresh = 10, bands = ["B02", "B03", "B04", "B0
                 s2items,
                 epsg = s2epsg,
                 assets=bands,  # red, green, blue, nir
-                chunksize=4096,
+                # chunksize=4096,
                 resolution=10,
             )
             .where(lambda x: x > 0, other=np.nan)  # sentinel-2 uses 0 as nodata
