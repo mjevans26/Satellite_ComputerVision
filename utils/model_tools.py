@@ -834,7 +834,7 @@ def get_lstm_autoencoder(
     sincos_input = layers.Input((None, None, 2), name = 'sincos_input')
 
     # build encoder LSTM
-    encoded = build_lstm_layers2(lstm_input, return_sequences = False)
+    encoded = build_lstm_layers(lstm_input, return_sequences = False)
 
     # branch 1 - predicting reversed sequence
     expanded = tf.expand_dims(encoded, axis = 1)
