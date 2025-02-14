@@ -736,7 +736,7 @@ def build_lstm_layers2(input_tensor, return_sequences = False, return_state = Fa
     """
 
     seq, state_h, state_c = layers.ConvLSTM2D(
-        filters = 32,
+        filters = 16,
         kernel_size = [3,3],
         # dilation_rate = (2,2),
         padding = 'same',
@@ -753,7 +753,7 @@ def build_lstm_layers2(input_tensor, return_sequences = False, return_state = Fa
         activated = layers.Dropout(dropout)(activated)
 
     feats2 = layers.ConvLSTM2D(
-        filters = 32,
+        filters = 16,
         kernel_size = [3,3],
         dilation_rate = (3,3),
         padding= 'same',
