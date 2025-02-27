@@ -976,7 +976,7 @@ class LSTMAutoencoderGenerator(LSTMDataGenerator):
     Sequence based data generator. Suitable for building data generator for training and prediction.
     """
     def __init__(
-        self, harmonics = True, *args, **kwargs):
+        self, harmonics = True, sample_weights = False, *args, **kwargs):
         """Initialization
 
         :param files: list of all files to use in the generator
@@ -990,6 +990,7 @@ class LSTMAutoencoderGenerator(LSTMDataGenerator):
         """
         super().__init__(*args, **kwargs)
         self.add_harmonics = harmonics
+        self.sample_weights = sample_weights
         self.on_epoch_end()
 
     def __len__(self):
@@ -1037,10 +1038,11 @@ class LSTMAutoencoderGenerator(LSTMDataGenerator):
         if self.to_fit:
             feats, y, start = rearrange_timeseries(normalized, self.n_channels)
             temporal_y = np.flip(feats, axis = 1) # reverse images along time dimension
+            weights = [None, abs(feats[:,-1,:,:,:] - y)/(feats[:,-1,:,:,:] + y)] if self.sample_weights else None
             if self.add_harmonics:
                 starts = [x + start - self.n_timesteps for x in starts]
                 harmonics = array_tools.make_harmonics(starts, self.n_timesteps, self.dim)
-            return [feats, harmonics], [temporal_y, y]
+            return [feats, harmonics], [temporal_y, y], weights
         else:
             if self.add_harmonics:
                 harmonics = array_tools.make_harmonics(starts, self.n_timesteps, self.dim)
