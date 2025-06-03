@@ -8,6 +8,7 @@ import sys
 from os.path import join
 from glob import glob
 import io
+import xml
 
 from osgeo import gdal
 import xarray as xr
@@ -49,6 +50,33 @@ def recursive_api_try(search):
         print('APIError, trying again')
         signed = recursive_api_try(search)
     return signed
+    
+def resign_vrt(filename, element_tag):
+    """Update the authentication token on previously created VRT items
+    Params
+    ---
+    filename: str
+    element_tag: str
+        xml tag containing asset url to be signed
+    """
+    tree = xml.etree.ElementTree.parse(filename)
+    root = tree._root
+    p = Path(filename)
+    sub_vrt_list = []
+    for item in root.iter(element_tag):
+        text = item.text
+        # if item.attrib['relativeToVRT'] == '0':
+        if text.startswith('http'):
+            newtext = planetary_computer.sign(text.split('?')[0])
+            item.text = newtext
+        elif '.vrt' in text:
+            sub_vrt_list.append(text)
+            newtext = text[:-4]+'_resigned.vrt'
+            item.text = newtext
+        for file in sub_vrt_list:
+            etag = 'SourceDataset' if 'warped' in file else element_tag
+            resign_vrt(file, etag)
+    tree.write(str(p.parent)+'/'+str(p.stem)+'_resigned.vrt')
     
 def export_blob(data: np.ndarray, container_client: ContainerClient, blobUrl: str) -> None:
     with io.BytesIO() as buffer:
