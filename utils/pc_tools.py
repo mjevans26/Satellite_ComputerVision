@@ -8,6 +8,7 @@ import sys
 from os.path import join
 from glob import glob
 import io
+from datetime import datetime
 import xml
 
 from osgeo import gdal
@@ -50,7 +51,7 @@ def recursive_api_try(search):
         print('APIError, trying again')
         signed = recursive_api_try(search)
     return signed
-    
+
 def resign_vrt(filename, element_tag):
     """Update the authentication token on previously created VRT items
     Params
@@ -77,7 +78,7 @@ def resign_vrt(filename, element_tag):
             etag = 'SourceDataset' if 'warped' in file else element_tag
             resign_vrt(file, etag)
     tree.write(str(p.parent)+'/'+str(p.stem)+'_resigned.vrt')
-    
+
 def export_blob(data: np.ndarray, container_client: ContainerClient, blobUrl: str) -> None:
     with io.BytesIO() as buffer:
         np.save(buffer, data)
@@ -183,6 +184,42 @@ def get_naip_stac(aoi, dates):
     naipImg = rioxarray.open_rasterio('./naiptmp.vrt', lock = False)
     return naipImg
 
+def get_dem_stac(aoi, dates, crs = None, resolution = None):
+    catalog = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
+    search = catalog.search(
+        intersects = aoi, 
+        collections = ["3dep-seamless"]
+    )    
+
+    # items is a pystac ItemCollection
+    items = list(planetary_computer.sign(search.item_collection()))
+    dems = [item for item in items if item.properties['gsd'] == 10] # we only want 10 m data
+    return dems
+    # # hagUrl = hag[0]['assets']['data']['href']
+    # demProperties = dems[0].properties
+    # if crs:
+    #     demCrs = crs
+    # else:
+    #     demCrs = demProperties['proj:epsg']
+    # # demTransform = demProperties['proj:transform']
+    # # if resolution:
+    # #     demRes = resolution
+    # # else:
+    # #     demRes = demProperties['gsd']
+
+    # demStac = stackstac.stack(
+    #     dems,
+    #     epsg = demCrs,
+    #     resolution = 10)
+    #     # sortby_date = False,
+    #     # assets = ['data'])
+    # print('3dep transform', demStac.rio.transform())
+    # demMedian = demStac.median(dim = 'time') 
+    # projected = demMedian.rio.set_crs(demCrs)
+    # # reprojected = projected.rio.reproject(hagCrs)
+
+    # return projected
+
 def get_hag_stac(aoi, dates, crs = None, resolution = None):
     catalog = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
     search = catalog.search(
@@ -243,7 +280,111 @@ def naip_mosaic(naips: list, crs: int):
     # reprojected = naipImage.rio.reproject('EPSG:4326')
     return(naipImage)
 
-def get_s2_stac(dates, aoi, epsg = None, cloud_thresh = 10, bands = ["B02", "B03", "B04", "B08"]):
+def harmonize_to_old(data):
+    """
+    Harmonize new Sentinel-2 data to the old baseline.
+
+    Parameters
+    ----------
+    data: xarray.DataArray
+        A DataArray with four dimensions: time, band, y, x
+
+    Returns
+    -------
+    harmonized: xarray.DataArray
+        A DataArray with all values harmonized to the old
+        processing baseline.
+    """
+    cutoff = datetime(2022, 1, 25)
+    offset = 1000
+    bands = [
+        "B01",
+        "B02",
+        "B03",
+        "B04",
+        "B05",
+        "B06",
+        "B07",
+        "B08",
+        "B8A",
+        "B09",
+        "B10",
+        "B11",
+        "B12",
+    ]
+
+    old = data.sel(time=slice(cutoff))
+
+    to_process = list(set(bands) & set(data.band.data.tolist()))
+    new = data.sel(time=slice(cutoff, None)).drop_sel(band=to_process)
+
+    new_harmonized = data.sel(time=slice(cutoff, None), band=to_process).clip(offset)
+    new_harmonized -= offset
+
+    new = xr.concat([new, new_harmonized], "band").sel(band=data.band.data.tolist())
+    return xr.concat([old, new], dim="time")
+
+def get_s2_stac(dates, aoi, cloud_thresh = 10, bands = ["B02", "B03", "B04", "B08"], epsg = None):
+    """from a pystac client return a stac of s2 imagery
+
+    Parameters 
+    ----
+    dates: str
+        start/end dates
+    aoi: shapely.geometry.Polygon
+        polygon defining area of search
+    cloud_thresh: int
+        maximum cloudy pixel percentage of s2 images to return
+    bands: list
+        asset (band) names to return and stack
+    epsg: int
+        epsg coordinate system to reproject s2 data to
+    
+    Return
+    ---
+    stackstac.stac()
+    """
+    # connect to the planetary computer catalog
+    catalog = pystac_client.Client.open(
+        "https://planetarycomputer.microsoft.com/api/stac/v1",
+        modifier = planetary_computer.sign_inplace)
+
+    search = catalog.search(
+        collections = ['sentinel-2-l2a'],
+        datetime = dates,
+        intersects = aoi,
+        query={"eo:cloud_cover": {"lt": cloud_thresh}} 
+    )
+
+    s2items = [item.to_dict() for item in list(search.get_items())]
+    if len(s2items) > 0:
+        s2 = s2items[0]
+        if epsg:
+            s2epsg = epsg
+        else:
+            s2epsg = s2['properties']['proj:epsg']
+
+        s2Stac = (
+            stackstac.stack(
+                s2items,
+                epsg = s2epsg,
+                assets=bands,  # red, green, blue, nir
+                # chunksize=4096,
+                resolution=10,
+            )
+            .where(lambda x: x > 0, other=np.nan)  # sentinel-2 uses 0 as nodata
+        )
+
+        harmonized = harmonize_to_old(s2Stac)
+
+        s2crs = s2Stac.attrs['crs']
+        s2projected = harmonized.rio.set_crs(s2crs)
+    else:
+        # clipped = s2projected.rio.clip(geometries = [aoi], crs = epsg)
+        harmonized = None   
+    return harmonized
+
+def get_s1_stac(dates, aoi, epsg  = None, bands = ["vv", "vh"]):
     """from a pystac client return a stac of s2 imagery
 
     Parameters 
@@ -265,31 +406,37 @@ def get_s2_stac(dates, aoi, epsg = None, cloud_thresh = 10, bands = ["B02", "B03
         modifier = planetary_computer.sign_inplace)
 
     search = catalog.search(
-        collections = ['sentinel-2-l2a'],
         datetime = dates,
         intersects = aoi,
-        query={"eo:cloud_cover": {"lt": cloud_thresh}} 
+        collections=["sentinel-1-rtc"],
+        query={"sar:polarizations": {"eq": ['VV', 'VH']},
+                'sar:instrument_mode': {"eq": 'IW'},
+                'sat:orbit_state': {"eq": 'ascending'}
+                }
     )
 
-    s2items = [item.to_dict() for item in list(search.get_items())]
-    s2 = s2items[0]
+    s1items = search.item_collection()
     if not epsg:
-        epsg = s2['properties']['proj:epsg']
-    s2Stac = (
-        stackstac.stack(
-            s2items,
-            epsg = epsg,
-            assets=bands,  # red, green, blue, nir
-            chunksize=4096,
-            resolution=10,
-        )
-        .where(lambda x: x > 0, other=np.nan)  # sentinel-2 uses 0 as nodata
+        s1 = s1items[0]
+        epsg = s1.properties['proj:epsg']
+    s1Stac = stackstac.stack(
+        s1items,
+        epsg = epsg,
+        assets=bands,
+        resolution=10,
+        gdal_env=stackstac.DEFAULT_GDAL_ENV.updated(
+            always=dict(GDAL_HTTP_MAX_RETRY=5, GDAL_HTTP_RETRY_DELAY=1)
+            )
     )
 
-    s2crs = s2Stac.attrs['crs']
-    s2projected = s2Stac.rio.set_crs(s2crs)
-    clipped = s2projected.rio.clip(geometries = [aoi], crs = 4326)
-    return clipped
+    # # get spatial reference info
+    # s1crs = s1Stac.attrs['crs']
+    # s1transform = s1Stac.attrs['transform']
+    # s1res = s1transform[0]
+
+    # s1projected = s1Stac.rio.set_crs(s1crs)
+    # clipped = s1projected.rio.clip(geometries = [aoi], crs = 4326)
+    return s1Stac
 
 def get_s1_stac(dates, aoi, epsg  = None, bands = ["vv", "vh"]):
     """from a pystac client return a stac of s2 imagery
