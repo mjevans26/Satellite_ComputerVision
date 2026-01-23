@@ -21,7 +21,7 @@ DIR = Path(os.path.relpath(ROOT, Path.cwd()))
 if str(DIR) not in sys.path:
     sys.path.append(str(DIR))
 
-from array_tools import merge_classes, normalize_array, rescale_array, aug_array_color, aug_array_morph, rearrange_timeseries, split_timeseries, normalize_timeseries, make_harmonics
+import array_tools
 
 def get_file_id(f:str, delim:str = '_', parts:slice = slice(3,5), flag=False):
     """Return a unique identifyier from a file name
@@ -192,17 +192,17 @@ def normalize_timeseries(arr, maxval = 10000, axis = -1, e = 0.00001):
   finite = np.where(np.isnan(normalized), 0.0, normalized)
   return finite
 
-def rearrange_timeseries(arr, nbands):
+def rearrange_timeseries(arr, nbands, time_dim = 1):
   # the number of time steps is in the 1st dimension if our data is (B, T, H, W, C)
-  timesteps = arr.shape[1]
+  timesteps = arr.shape[time_dim]
   # randomly pick one of the timesteps as the starting time
   starttime = randint(0, timesteps-1)
   # print('start', starttime)
   # grab all timesteps leading up to the timestep corresponding to our random first
   last = arr[:,0:starttime,:,:,:]
-  print('last shape', last.shape)
+#   print('last shape', last.shape)
   first = arr[:,starttime:timesteps,:,:,:]
-  print('start shape', first.shape)
+#   print('start shape', first.shape)
   rearranged = np.concatenate([first, last], axis = 1)
   rearranged.shape == arr.shape
 
@@ -494,7 +494,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         self.moments = moments
         self.lc_trans = lc_transitions
         self.lu_trans = lu_transitions
-        self.indexes = np.arange(len(self.naipfiles))
+        self.indexes = np.arange(len(self.labelfiles))
         self.mask = False
         self.on_epoch_end()
 
@@ -602,7 +602,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         if type(naip) == np.ndarray:
 
             if self.to_fit:
-                recolored = aug_array_color(naip)
+                recolored = array_tools.aug_array_color(naip)
                 return recolored
             return naip
         #else:
@@ -613,7 +613,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         s2 = self._get_unet_data(files_temp,rescale_val=10000.0)
         if type(s2) == np.ndarray:
             if self.to_fit:
-                recolored = aug_array_color(s2)
+                recolored = array_tools.aug_array_color(s2)
                 return recolored
             else:
                 return s2
@@ -663,7 +663,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
 
             # optionally reduce the number of classes
             if self.lc_trans:
-              merged_labels = merge_classes(cond_array = int_labels, trans = self.lc_trans, out_array = int_labels)
+              merged_labels = array_tools.merge_classes(cond_array = int_labels, trans = self.lc_trans, out_array = int_labels)
             else:
               merged_labels = int_labels
 
@@ -675,7 +675,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
                     assert len(lu_arrays) == self.batch_size
                     assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lu_arrays])
                     lu = np.stack(lu_arrays, axis = 0) #(B, C, H, W)
-                    y = merge_classes(cond_array = lu, trans = self.lu_trans, out_array = merged_labels)
+                    y = array_tools.merge_classes(cond_array = lu, trans = self.lu_trans, out_array = merged_labels)
                 except AssertionError:
                     return None
             else:
@@ -745,7 +745,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             labels = self._process_y(indexes)
             # perform morphological augmentation - expects a 3D (H, W, C) image array
             stacked = np.concatenate([xData, labels], axis = -1)
-            morphed = aug_array_morph(stacked)
+            morphed = array_tools.aug_array_morph(stacked)
             # print('augmented max', np.nanmax(augmented, axis = (0,1,2)))
 
             feats = morphed[:,:,:,0:self.n_channels]
@@ -755,8 +755,11 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             return xData
 
 class SiameseDataGenerator(UNETDataGenerator):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, beforefiles, afterfiles, add_nan_mask: bool, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.beforefiles = beforefiles
+        self.afterfiles = afterfiles
+        self.mask = add_nan_mask
 
         # do an initial shuffle for cases where the generator is called fresh at the start of each epoch
         if self.shuffle == True:
@@ -775,7 +778,44 @@ class SiameseDataGenerator(UNETDataGenerator):
 
         """
         UNETDataGenerator.on_epoch_end(self)
+    
+    def _get_unet_data(self, files_temp, add_nan_mask = False,rescale_val=None):
+      # arrays come from PC in (C, H, W) format
+      arrays = self._load_numpy_data(files_temp)
+      try:
+          assert len(arrays) > 0
+          assert all([len(x.shape) == 3 for x in arrays]), 'all arrays not 3D'
+          # ensure all arrays are C, H, W to start
+          chw = [np.moveaxis(x, source = -1, destination = 0) if x.shape[-1] < x.shape[0] else x for x in arrays]
+          if rescale_val is not None:
+              chw = [x/rescale_val for x in chw]
+          batch = np.stack(chw, axis = 0)
+          # assert np.isnan(batch).sum() < 1, 'nans in batch, skipping'
+          in_shape = batch.shape
+          # in case our incoming data is of different size than we want, define a trim amount
+          trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2)
+          # If necessary, trim data to (-1, dims[0], dims[1])
+          array = batch[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
+          # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
 
+          reshaped = np.moveaxis(array, source = 1, destination = 3)
+          nans = np.isnan(reshaped)
+          if add_nan_mask:
+              mask = np.ones(shape = reshaped.shape) # create a mask with all valid pixels by default
+              mask[nans] = 0 # inject zeros into mask at invalid pixels
+              mask[reshaped < -1] = 0
+              reduced_mask = mask.min(axis = -1, keepdims = True) # reduce mask along channels -> (B, C, H, 1)
+              reshaped[nans] = np.random.random(nans.sum()) # replace nan values with random val from [0,1)
+              masked = np.concatenate([reshaped, reduced_mask], axis = -1) # add mask to batch as additional channel
+              return reshaped, reduced_mask
+          else:
+              assert np.isnan(reshaped).sum() < 1, 'nans in batch, skipping'
+              return reshaped, None
+          
+      except AssertionError as msg:
+        print(msg)
+        return None, None
+  
     def _process_y(self, indexes):
         # get label files for current batch
         files_temp = [self.labelfiles[k] for k in indexes]
@@ -797,6 +837,26 @@ class SiameseDataGenerator(UNETDataGenerator):
         except AssertionError:
             return None
 
+    def _get_before_data(self, indexes, rescale_val):
+        files_temp = [self.beforefiles[k] for k in indexes]
+        s2, bef_mask = self._get_unet_data(files_temp, add_nan_mask = self.mask, rescale_val=rescale_val)
+        if type(s2) == np.ndarray:
+            if self.to_fit:
+                recolored = array_tools.aug_array_color(s2)
+                return recolored, bef_mask
+            else:
+                return s2, bef_mask
+    
+    def _get_after_data(self, indexes, rescale_val):
+        files_temp = [self.afterfiles[k] for k in indexes]
+        s2, aft_mask = self._get_unet_data(files_temp, add_nan_mask = self.mask, rescale_val=rescale_val)
+        if type(s2) == np.ndarray:
+            if self.to_fit:
+                recolored = array_tools.aug_array_color(s2)
+                return recolored, aft_mask
+            else:
+                return s2, aft_mask
+                        
     def __getitem__(self, index):
         """Generate one batch of data
 
@@ -806,23 +866,30 @@ class SiameseDataGenerator(UNETDataGenerator):
         # Generate indexes of the batch
         indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
 
-        s2Data = self._get_s2_data(indexes)
+        befData, befMask = self._get_before_data(indexes, rescale_val = 10000.0)
+        
+        aftData, aftMask = self._get_after_data(indexes, rescale_val = 10000.0)
 
         labels = self._process_y(indexes)
 
         # perform morphological augmentation - expects a 3D (H, W, C) image array
-        stacked = np.concatenate([s2Data, labels], axis = -1)
-        morphed = aug_array_morph(stacked)
+        # if all([befData is not None, aftData is not None, labels is not None]):
+        if self.mask:
+          mask = np.concatenate([befMask, aftMask], axis = -1).min(axis = -1, keepdims= True)
+          labels = labels * mask
+
+        stacked = np.concatenate([befData, aftData, labels], axis = -1)
+        
         # print('augmented max', np.nanmax(augmented, axis = (0,1,2)))
 
-        feats_b = morphed[:,:,:,0:self.n_channels]
-        feats_a = morphed[:,:,:,self.n_channels:-1]
-        labels = morphed[:,:,:,-1:]
-
         if self.to_fit:
-            return [feats_b, feats_a], labels
+          morphed = array_tools.aug_array_morph(stacked)
+          feats_b = morphed[:,:,:,0:self.n_channels]
+          feats_a = morphed[:,:,:,self.n_channels:2*(self.n_channels)]
+          labels = morphed[:,:,:,-1:]
+          return [feats_b, feats_a], labels
         else:
-            return [feats_b, feats_a]
+          return [befData, aftData]
 
 
 class LSTMDataGenerator(tf.keras.utils.Sequence):
@@ -867,6 +934,10 @@ class LSTMDataGenerator(tf.keras.utils.Sequence):
         if self.shuffle == True:
             np.random.shuffle(self.indexes)
 
+    def _load_numpy_data(self, files_temp):
+        arrays = [UNETDataGenerator.load_numpy_url(f) for f in files_temp]
+        return(arrays)
+    
     def __getitem__(self, index):
         """Generate one batch of data
 
@@ -879,7 +950,8 @@ class LSTMDataGenerator(tf.keras.utils.Sequence):
         # Find list of IDs
         files_temp = [self.files[k] for k in indexes]
         # arrays come from PC in (T, C, H, W) format
-        arrays = [np.load(file) for file in files_temp]
+        arrays = self._load_numpy_data(files_temp)
+
         trim = ((arrays[0].shape[2] - self.dim[0])//2, (arrays[0].shape[3] - self.dim[1])//2)
         # TEMPORARY FIX: drop the last image to give us a sereis of 5
         array = [arr[0:self.n_timesteps,:,trim[0]:-trim[0],trim[1]:-trim[1]] for arr in arrays]
@@ -892,7 +964,7 @@ class LSTMDataGenerator(tf.keras.utils.Sequence):
         # harmonized = add_harmonic(normalized)
         if self.to_fit:
             rearranged = rearrange_timeseries(normalized, self.n_channels)
-            feats, labels = split_timeseries(rearranged)
+            feats, labels = array_tools.split_timeseries(rearranged)
             # we can't have nans in label
             return feats, labels
         else:
@@ -904,7 +976,7 @@ class LSTMAutoencoderGenerator(LSTMDataGenerator):
     Sequence based data generator. Suitable for building data generator for training and prediction.
     """
     def __init__(
-        self, harmonics = True, *args, **kwargs):
+        self, harmonics = True, sample_weights = False, *args, **kwargs):
         """Initialization
 
         :param files: list of all files to use in the generator
@@ -918,6 +990,7 @@ class LSTMAutoencoderGenerator(LSTMDataGenerator):
         """
         super().__init__(*args, **kwargs)
         self.add_harmonics = harmonics
+        self.sample_weights = sample_weights
         self.on_epoch_end()
 
     def __len__(self):
@@ -939,7 +1012,7 @@ class LSTMAutoencoderGenerator(LSTMDataGenerator):
         files_temp = [self.files[k] for k in indexes]
 
         # arrays come from PC in (T, C, H, W) format
-        arrays = [np.load(f) for f in files_temp]
+        arrays = self._load_numpy_data(files_temp)
 
         # creat a single (B, T, C, H, W) array
         batch = np.stack(arrays, axis = 0)
@@ -965,13 +1038,14 @@ class LSTMAutoencoderGenerator(LSTMDataGenerator):
         if self.to_fit:
             feats, y, start = rearrange_timeseries(normalized, self.n_channels)
             temporal_y = np.flip(feats, axis = 1) # reverse images along time dimension
+            weights = [None, abs(feats[:,-1,:,:,:] - y)/(feats[:,-1,:,:,:] + y)] if self.sample_weights else None
             if self.add_harmonics:
                 starts = [x + start - self.n_timesteps for x in starts]
-                harmonics = make_harmonics(starts, self.n_timesteps, self.dim)
-            return [feats, harmonics], [temporal_y, y]
+                harmonics = array_tools.make_harmonics(starts, self.n_timesteps, self.dim)
+            return [feats, harmonics], [temporal_y, y], weights
         else:
             if self.add_harmonics:
-                harmonics = make_harmonics(starts, self.n_timesteps, self.dim)
+                harmonics = array_tools.make_harmonics(starts, self.n_timesteps, self.dim)
             return [normalized, harmonics]
 
 class HybridDataGenerator(UNETDataGenerator):
@@ -1038,7 +1112,7 @@ class HybridDataGenerator(UNETDataGenerator):
         normalized = self._get_lstm_data(files_temp, rescale_val = 10000.0)
         if type(normalized) == np.ndarray:
             if self.to_fit:
-                recolored = aug_array_color(normalized)
+                recolored = array_tools.aug_array_color(normalized)
                 return recolored
             else:
                 return normalized

@@ -39,8 +39,8 @@ def generate_chip_indices(H, W, buff = 128, kernel = 256):
   side = (2*buff) + kernel
   x_buff = y_buff = buff
   
-  y_indices = list(range(y_buff, H - (kernel+buff), kernel))
-  x_indices = list(range(x_buff, W - (kernel+buff), kernel))
+  y_indices = list(range(y_buff, H - (kernel+buff) +1, kernel))
+  x_indices = list(range(x_buff, W - (kernel+buff) +1, kernel))
 
   indices = [(y_index, x_index) for y_index in y_indices for x_index in x_indices]
   return indices
