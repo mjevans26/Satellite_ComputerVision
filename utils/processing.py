@@ -540,7 +540,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         arrays = [UNETDataGenerator.load_numpy_url(f) for f in files_temp]
         return(arrays)
 
-    def _get_unet_data(self, files_temp, add_nan_mask = False,rescale_val=False):
+    def _get_unet_data(self, files_temp, add_nan_mask = False, rescale_val=False):
         # arrays come from PC in (C, H, W) format
         arrays = self._load_numpy_data(files_temp)
         try:
