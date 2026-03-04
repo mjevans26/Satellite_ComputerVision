@@ -78,6 +78,7 @@ def resign_vrt(filename, element_tag):
             etag = 'SourceDataset' if 'warped' in file else element_tag
             resign_vrt(file, etag)
     tree.write(str(p.parent)+'/'+str(p.stem)+'_resigned.vrt')
+    # return tree
 
 def export_blob(data: np.ndarray, container_client: ContainerClient, blobUrl: str) -> None:
     with io.BytesIO() as buffer:
@@ -127,7 +128,7 @@ def trim_dataArray(da: xr.DataArray, size: int) -> xr.DataArray:
   trimmed = da.isel(**slices)
   return trimmed
 
-def get_naip_stac(aoi, dates):
+def get_naip_stac(aoi, dates, vrt_file = './naiptmp.vrt'):
     
     catalog = pystac_client.Client.open("https://planetarycomputer.microsoft.com/api/stac/v1")
     collections = ['naip']
@@ -179,9 +180,9 @@ def get_naip_stac(aoi, dates):
         # merged = merge_arrays(rioxrs)
         # vrt = stac_vrt.build_vrt(filtered, block_width=512, block_height=512, data_type="Byte")
         # naipImg = rioxarray.open_rasterio(vrt, lock = False)
-        naipVRT = gdal.BuildVRT('./naiptmp.vrt', urls)
+        naipVRT = gdal.BuildVRT(vrt_file, urls)
     naipVRT = None
-    naipImg = rioxarray.open_rasterio('./naiptmp.vrt', lock = False)
+    naipImg = rioxarray.open_rasterio(vrt_file, lock = False)
     return naipImg
 
 def get_dem_stac(aoi, dates, crs = None, resolution = None):
