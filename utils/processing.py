@@ -11,6 +11,7 @@ import copy
 import sys
 import requests
 import io
+from concurrent.futures import ThreadPoolExecutor
 from random import shuffle, randint, uniform
 from pathlib import Path
 
@@ -453,76 +454,343 @@ def get_eval_dataset(files, ftDict, features, response, axes = [2], splits = Non
         dataset = dataset.batch(1)
         return dataset
 
-class UNETDataGenerator(tf.keras.utils.Sequence):
-    """Generates data for Keras
-    Sequence based data generator. Suitable for building data generator for training and prediction.
-    """
-    def __init__(self, labelfiles = None, s2files = None, naipfiles = None,
-                 hagfiles = None, lidarfiles = None, lufiles = None,
-                 demfiles = None, ssurgofiles = None,
-                 to_fit=True, batch_size=32, unet_dim=(256, 256),
-                 n_channels=4, n_classes = 8, shuffle=True,
-                 splits = None, moments = None,
-                lc_transitions = [(12,3), (11,3), (10,3), (9,8), (255, 0)],
-                lu_transitions = [(82,9), (84,10)]):
-        """Initialization
+# class UNETDataGenerator(tf.keras.utils.Sequence):
+#     """Generates data for Keras
+#     Sequence based data generator. Suitable for building data generator for training and prediction.
+#     """
+#     def __init__(self, labelfiles = None, s2files = None, naipfiles = None,
+#                  hagfiles = None, lidarfiles = None, lufiles = None,
+#                  demfiles = None, ssurgofiles = None,
+#                  to_fit=True, batch_size=32, unet_dim=(256, 256),
+#                  n_channels=4, n_classes = 8, shuffle=True,
+#                  splits = None, moments = None,
+#                 lc_transitions = [(12,3), (11,3), (10,3), (9,8), (255, 0)],
+#                 lu_transitions = [(82,9), (84,10)]):
+#         """Initialization
 
-        :param files: list of all files to use in the generator
-        :param to_fit: True to return X and y, False to return X only
-        :param batch_size: batch size at each iteration
-        :param dim: tuple indicating image dimension
-        :param n_channels: number of image channels
-        :param n_classes: number of output masks
-        :param n_timesteps: number of multi-channel images
-        :param shuffle: True to shuffle label indexes after every epoch
-        """
-        self.s2files = s2files
-        self.naipfiles = naipfiles
-        self.hagfiles = hagfiles
-        self.demfiles = demfiles
-        self.ssurgofiles = ssurgofiles
-        self.lidarfiles = lidarfiles
-        self.labelfiles = labelfiles
-        self.lufiles = lufiles
-        self.to_fit = to_fit
+#         :param files: list of all files to use in the generator
+#         :param to_fit: True to return X and y, False to return X only
+#         :param batch_size: batch size at each iteration
+#         :param dim: tuple indicating image dimension
+#         :param n_channels: number of image channels
+#         :param n_classes: number of output masks
+#         :param n_timesteps: number of multi-channel images
+#         :param shuffle: True to shuffle label indexes after every epoch
+#         """
+#         self.s2files = s2files
+#         self.naipfiles = naipfiles
+#         self.hagfiles = hagfiles
+#         self.demfiles = demfiles
+#         self.ssurgofiles = ssurgofiles
+#         self.lidarfiles = lidarfiles
+#         self.labelfiles = labelfiles
+#         self.lufiles = lufiles
+#         self.to_fit = to_fit
+#         self.batch_size = batch_size
+#         self.unet_dim = unet_dim
+#         self.n_channels = n_channels
+#         self.n_classes = n_classes
+#         self.shuffle = shuffle
+#         self.splits = splits
+#         self.moments = moments
+#         self.lc_trans = lc_transitions
+#         self.lu_trans = lu_transitions
+#         self.indexes = np.arange(len(self.labelfiles))
+#         self.mask = False
+#         self.on_epoch_end()
+
+#         # do an initial shuffle for cases where the generator is called fresh at the start of each epoch
+#         if self.shuffle == True:
+#             print('shuffling')
+#             np.random.shuffle(self.indexes)
+
+#         if self.to_fit == True:
+#             print('masking on')
+#             self.mask = True
+
+#     def __len__(self):
+#         """Denotes the number of batches per epoch
+
+#         :return: number of batches per epoch
+#         """
+#         return int(np.floor(len(self.indexes) / self.batch_size))
+
+#     def on_epoch_end(self):
+#         """Updates indexes after each epoch
+
+#         """
+#         print('the generator knows the epoch ended')
+#         self.indexes = np.arange(len(self.indexes))
+#         if self.shuffle == True:
+#             print('shuffling')
+#             np.random.shuffle(self.indexes)
+
+#     @staticmethod
+#     def load_numpy_url(url):
+
+#         if os.path.exists(url):
+#             data = np.load(url)
+#         else:
+#             response = requests.get(url)
+#             response.raise_for_status()
+#             data = np.load(io.BytesIO(response.content))
+
+#         return(data)
+
+#     def _load_numpy_data(self, files_temp):
+#         arrays = [UNETDataGenerator.load_numpy_url(f) for f in files_temp]
+#         return(arrays)
+
+#     def _get_unet_data(self, files_temp, add_nan_mask = False, rescale_val=False):
+#         # arrays come from PC in (C, H, W) format
+#         arrays = self._load_numpy_data(files_temp)
+#         try:
+#             assert len(arrays) > 0
+#             assert all([len(x.shape) == 3 for x in arrays]), 'all arrays not 3D'
+#             # ensure all arrays are C, H, W to start
+#             chw = [np.moveaxis(x, source = -1, destination = 0) if x.shape[-1] < x.shape[0] else x for x in arrays]
+#             if rescale_val is not False:
+#                 chw = [x/rescale_val for x in chw]
+#             if add_nan_mask == True:
+#                 chw_new = []
+#                 for cur_array in chw:                 
+                        
+#                     mask_channel = np.zeros([cur_array.shape[1], cur_array.shape[2]])
+#                     # Create a random array to be used to replace the original data
+#                     if self.to_fit:
+#                         for arr_2d in cur_array:
+#                             nans = np.isnan(arr_2d)
+#                             bads = arr_2d < -5000
+#                             mask_channel[nans==True] = 1
+#                             mask_channel[bads==True] = 1
+#                             arr_2d[mask_channel==1] = np.random.randn((mask_channel==1).sum())
+#                         # arr_2d[nans==True] = np.random.uniform()
+#                         #arr_2d[np.isnan(arr_2d)] = np.random.randn(len(arr_2d[np.isnan(arr_2d)]))
+#                     #print("AFTER FIX:",np.isnan(cur_array).sum())
+#                     #cur_array = np.vstack((cur_array, mask[None,:,:]))
+
+
+#                     """randarr = np.random.uniform(size=cur_array.shape)*cur_array.max()
+#                     # Build a mask layer to use in the replacement
+#                     n_cols = cur_array.shape[2]
+#                     n_rows = cur_array.shape[1]
+#                     mask_channel = np.ones((n_rows, n_cols), dtype=np.int8)
+#                     np.any(cur_array == np.nan, axis=0, out=mask_channel)
+#                     # Replace the values in any of the channels where the mask_channel is 0 with the values from the random array
+#                     cur_array[:, mask_channel == 1] = randarr[:, mask_channel == 1]
+#                     cur_array[:, mask_channel == 1] = randarr[:, mask_channel == 1] """
+#                     cur_array = np.append(cur_array, mask_channel[np.newaxis, :, :], axis=0)
+#                     #print("AFTER:",np.isnan(cur_array).sum())
+#                     chw_new.append(cur_array)
+#                 chw = chw_new
+#             batch = np.stack(chw, axis = 0)
+#             assert np.isnan(batch).sum() < 1, 'nans in batch, skipping'
+#             in_shape = batch.shape
+#             # in case our incoming data is of different size than we want, define a trim amount
+#             trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2)
+#             # If necessary, trim data to (-1, dims[0], dims[1])
+#             array = batch[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
+#             # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
+
+#             reshaped = np.moveaxis(array, source = 1, destination = 3)
+#             return reshaped
+#         except AssertionError as msg:
+#           print(msg)
+#           return None
+#     def _get_naip_data(self, indexes):
+#         files_temp = [self.naipfiles[k] for k in indexes]
+#         naip = self._get_unet_data(files_temp,rescale_val=255.0)
+#         if type(naip) == np.ndarray:
+
+#             if self.to_fit:
+#                 recolored = array_tools.aug_array_color(naip)
+#                 return recolored
+#             return naip
+#         #else:
+#             #return naip
+
+#     def _get_s2_data(self, indexes):
+#         files_temp = [self.s2files[k] for k in indexes]
+#         s2 = self._get_unet_data(files_temp,rescale_val=10000.0)
+#         if type(s2) == np.ndarray:
+#             if self.to_fit:
+#                 recolored = array_tools.aug_array_color(s2)
+#                 return recolored
+#             else:
+#                 return s2
+#         #else:
+#             #return s2
+
+#     def _get_lidar_data(self, indexes):
+#         files_temp = [self.lidarfiles[k] for k in indexes]
+#         lidar = self._get_unet_data(files_temp,self.mask,rescale_val=100)
+#         if type(lidar) == np.ndarray:
+#             return lidar
+
+#     def _get_hag_data(self, indexes):
+#         files_temp = [self.hagfiles[k] for k in indexes]
+#         hag = self._get_unet_data(files_temp, self.mask, rescale_val=100)
+#         if type(hag) == np.ndarray:
+#             return hag
+#         #else:
+#          #   return hag
+
+#     def _get_dem_data(self, indexes):
+#         files_temp = [self.demfiles[k] for k in indexes]
+#         dem = self._get_unet_data(files_temp,self.mask,rescale_val=2000.0)
+#         if type(dem) == np.ndarray:
+#            # we are going to use the min and max elevations across the chesapeake
+#           return dem
+#         #else:
+#          # return dem
+
+#     def _get_ssurgo_data(self, indexes):
+#         files_temp = [self.ssurgofiles[k] for k in indexes]
+#         ssurgo = self._get_unet_data(files_temp)
+#         if type(ssurgo) == np.ndarray:
+#             return ssurgo
+
+#     def _process_y(self, indexes):
+#         # get label files for current batch
+#         lc_files = [self.labelfiles[k] for k in indexes]
+#         # lc_arrays = [np.load(file) for file in lc_files]
+#         lc_arrays = self._load_numpy_data(lc_files)
+        
+#         try:
+#             assert len(lc_arrays) == self.batch_size
+#             assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lc_arrays])
+#             lc = np.stack(lc_arrays, axis = 0) #(B, C, H, W)
+#             int_labels = lc.astype(int)
+
+#             # optionally reduce the number of classes
+#             if self.lc_trans:
+#               merged_labels = array_tools.merge_classes(cond_array = int_labels, trans = self.lc_trans, out_array = int_labels)
+#             else:
+#               merged_labels = int_labels
+
+#             if self.lufiles:
+#                 lu_files = [self.lufiles[k] for k in indexes]
+#                 # lu_arrays = [np.load(file) for file in lu_files]
+#                 lu_arrays = self._load_numpy_data(lu_files)
+#                 try:
+#                     assert len(lu_arrays) == self.batch_size
+#                     assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lu_arrays])
+#                     lu = np.stack(lu_arrays, axis = 0) #(B, C, H, W)
+#                     y = array_tools.merge_classes(cond_array = lu, trans = self.lu_trans, out_array = merged_labels)
+#                 except AssertionError:
+#                     return None
+#             else:
+#                 y = merged_labels
+
+#             # If necessary, trim data to (-1, dims[0], dims[1])
+#             in_shape = y.shape
+#             trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2)
+#             array = y[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
+
+#             # shift range of categorical labels from [1, n_classes] to [0, n_classes]
+#             zeroed = array
+#             # create one-hot representation of classes
+#             one_hot = tf.one_hot(zeroed, self.n_classes)
+#             # one_hot = to_one_hot(zeroed, self.n_classes)
+#             return tf.squeeze(one_hot)
+
+#         except AssertionError:
+#             return None
+
+#     def __getitem__(self, index):
+#         """Generate one batch of data
+
+#         :param index: index of the batch
+#         :return: X and y when fitting. X only when predicting
+#         """
+#         # Generate indexes of the batch
+#         indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
+
+#         datasets = []
+
+#         if self.s2files:
+#             s2Data = self._get_s2_data(indexes)
+#             datasets.append(s2Data)
+
+#         if self.naipfiles:
+#             naipData = self._get_naip_data(indexes)
+#             #print("appending Naip data",type(naipData))
+#             datasets.append(naipData)
+
+#         if self.hagfiles:
+#             hagData = self._get_hag_data(indexes)
+#             datasets.append(hagData)
+
+#         if self.demfiles:
+#             demData = self._get_dem_data(indexes)
+#             # print('dem', demData.shape)
+#             #print("appening DEM data",type(demData))
+#             datasets.append(demData)
+
+#         if self.ssurgofiles:
+#             ssurgoData = self._get_ssurgo_data(indexes)
+#             # print('ssurgo', ssurgoData.shape
+#             #print("appending ssurgoData",type(ssurgoData))
+#             datasets.append(ssurgoData)
+
+#         if self.lidarfiles:
+#             lidarData = self._get_lidar_data(indexes)
+#             datasets.append(lidarData)
+
+#         if any([type(dat) != np.ndarray for dat in datasets]):
+#           pass
+#         else:
+#             xData = np.concatenate(datasets, axis = -1)
+
+#         if self.to_fit:
+#             labels = self._process_y(indexes)
+#             # perform morphological augmentation - expects a 3D (H, W, C) image array
+#             stacked = np.concatenate([xData, labels], axis = -1)
+#             morphed = array_tools.aug_array_morph(stacked)
+#             # print('augmented max', np.nanmax(augmented, axis = (0,1,2)))
+
+#             feats = morphed[:,:,:,0:self.n_channels]
+#             labels = morphed[:,:,:,self.n_channels:]
+#             return feats, labels
+#         else:
+#             return xData
+class UNETDataGenerator(tf.keras.utils.Sequence):
+    def __init__(self, df, var_dict, label_dict, batch_size, unet_dim, n_channels, n_classes, shuffle, to_fit = True, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.df = df
+        self.var_dict = var_dict
+        self.label_dict = label_dict
+        self.response_var = sorted(label_dict.keys())[0]
+        self.unique = len(df['id'].unique())
+        self.indexes = np.arange(len(df))
         self.batch_size = batch_size
         self.unet_dim = unet_dim
         self.n_channels = n_channels
         self.n_classes = n_classes
         self.shuffle = shuffle
-        self.splits = splits
-        self.moments = moments
-        self.lc_trans = lc_transitions
-        self.lu_trans = lu_transitions
-        self.indexes = np.arange(len(self.labelfiles))
-        self.mask = False
-        self.on_epoch_end()
+        self.to_fit = to_fit
 
         # do an initial shuffle for cases where the generator is called fresh at the start of each epoch
         if self.shuffle == True:
             print('shuffling')
-            np.random.shuffle(self.indexes)
-
-        if self.to_fit == True:
-            print('masking on')
-            self.mask = True
+            self.indexes = np.random.choice(self.indexes, size = self.unique, replace = False)
 
     def __len__(self):
         """Denotes the number of batches per epoch
 
         :return: number of batches per epoch
         """
-        return int(np.floor(len(self.indexes) / self.batch_size))
-
+        return int(np.floor(self.unique / self.batch_size))
+    
     def on_epoch_end(self):
         """Updates indexes after each epoch
 
         """
         print('the generator knows the epoch ended')
-        self.indexes = np.arange(len(self.indexes))
+        self.indexes = np.arange(len(self.df))
         if self.shuffle == True:
             print('shuffling')
-            np.random.shuffle(self.indexes)
+            self.indexes = np.random.choice(self.indexes, size = self.unique, replace = False)
 
     @staticmethod
     def load_numpy_url(url):
@@ -535,22 +803,31 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             data = np.load(io.BytesIO(response.content))
 
         return(data)
-
+     
     def _load_numpy_data(self, files_temp):
-        arrays = [UNETDataGenerator.load_numpy_url(f) for f in files_temp]
-        return(arrays)
-
-    def _get_unet_data(self, files_temp, add_nan_mask = False, rescale_val=False):
+      with ThreadPoolExecutor() as executor:
+          arrays = executor.map(UNETDataGenerator.load_numpy_url, files_temp)
+      arrays = list(arrays)
+      return(arrays)
+    
+    def _get_unet_data(self, var, indexes):
         # arrays come from PC in (C, H, W) format
+        files_temp = [self.df[var].iloc[k] for k in indexes]
+        dic = self.var_dict[var]
+        rescale = dic['rescale_val']
+        mask = dic['mask']
+        augment = dic['augment_img']
         arrays = self._load_numpy_data(files_temp)
         try:
             assert len(arrays) > 0
             assert all([len(x.shape) == 3 for x in arrays]), 'all arrays not 3D'
             # ensure all arrays are C, H, W to start
             chw = [np.moveaxis(x, source = -1, destination = 0) if x.shape[-1] < x.shape[0] else x for x in arrays]
-            if rescale_val is not False:
-                chw = [x/rescale_val for x in chw]
-            if add_nan_mask == True:
+            if rescale is not None:
+                chw = [(x - rescale['min'])/(rescale['max'] - rescale['min']) for x in chw]
+            if augment is True:
+                chw = [array_tools.aug_array_color(x) for x in chw]
+            if mask == True:
                 chw_new = []
                 for cur_array in chw:                 
                         
@@ -563,21 +840,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
                             mask_channel[nans==True] = 1
                             mask_channel[bads==True] = 1
                             arr_2d[mask_channel==1] = np.random.randn((mask_channel==1).sum())
-                        # arr_2d[nans==True] = np.random.uniform()
-                        #arr_2d[np.isnan(arr_2d)] = np.random.randn(len(arr_2d[np.isnan(arr_2d)]))
-                    #print("AFTER FIX:",np.isnan(cur_array).sum())
-                    #cur_array = np.vstack((cur_array, mask[None,:,:]))
 
-
-                    """randarr = np.random.uniform(size=cur_array.shape)*cur_array.max()
-                    # Build a mask layer to use in the replacement
-                    n_cols = cur_array.shape[2]
-                    n_rows = cur_array.shape[1]
-                    mask_channel = np.ones((n_rows, n_cols), dtype=np.int8)
-                    np.any(cur_array == np.nan, axis=0, out=mask_channel)
-                    # Replace the values in any of the channels where the mask_channel is 0 with the values from the random array
-                    cur_array[:, mask_channel == 1] = randarr[:, mask_channel == 1]
-                    cur_array[:, mask_channel == 1] = randarr[:, mask_channel == 1] """
                     cur_array = np.append(cur_array, mask_channel[np.newaxis, :, :], axis=0)
                     #print("AFTER:",np.isnan(cur_array).sum())
                     chw_new.append(cur_array)
@@ -590,112 +853,49 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             # If necessary, trim data to (-1, dims[0], dims[1])
             array = batch[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
             # rearrange arrays from (B, C, H, W) -> (B, H, W, C) expected by model
-
             reshaped = np.moveaxis(array, source = 1, destination = 3)
             return reshaped
         except AssertionError as msg:
           print(msg)
           return None
-    def _get_naip_data(self, indexes):
-        files_temp = [self.naipfiles[k] for k in indexes]
-        naip = self._get_unet_data(files_temp,rescale_val=255.0)
-        if type(naip) == np.ndarray:
 
-            if self.to_fit:
-                recolored = array_tools.aug_array_color(naip)
-                return recolored
-            return naip
-        #else:
-            #return naip
-
-    def _get_s2_data(self, indexes):
-        files_temp = [self.s2files[k] for k in indexes]
-        s2 = self._get_unet_data(files_temp,rescale_val=10000.0)
-        if type(s2) == np.ndarray:
-            if self.to_fit:
-                recolored = array_tools.aug_array_color(s2)
-                return recolored
-            else:
-                return s2
-        #else:
-            #return s2
-
-    def _get_lidar_data(self, indexes):
-        files_temp = [self.lidarfiles[k] for k in indexes]
-        lidar = self._get_unet_data(files_temp,self.mask,rescale_val=100)
-        if type(lidar) == np.ndarray:
-            return lidar
-
-    def _get_hag_data(self, indexes):
-        files_temp = [self.hagfiles[k] for k in indexes]
-        hag = self._get_unet_data(files_temp, self.mask, rescale_val=100)
-        if type(hag) == np.ndarray:
-            return hag
-        #else:
-         #   return hag
-
-    def _get_dem_data(self, indexes):
-        files_temp = [self.demfiles[k] for k in indexes]
-        dem = self._get_unet_data(files_temp,self.mask,rescale_val=2000.0)
-        if type(dem) == np.ndarray:
-           # we are going to use the min and max elevations across the chesapeake
-          return dem
-        #else:
-         # return dem
-
-    def _get_ssurgo_data(self, indexes):
-        files_temp = [self.ssurgofiles[k] for k in indexes]
-        ssurgo = self._get_unet_data(files_temp)
-        if type(ssurgo) == np.ndarray:
-            return ssurgo
-
-    def _process_y(self, indexes):
+    def _process_y(self, var, indexes):
+        dic = self.label_dict[var]
         # get label files for current batch
-        lc_files = [self.labelfiles[k] for k in indexes]
+        label_files = [self.df[var].iloc[k] for k in indexes]
         # lc_arrays = [np.load(file) for file in lc_files]
-        lc_arrays = self._load_numpy_data(lc_files)
+        label_arrays = self._load_numpy_data(label_files)
         
         try:
-            assert len(lc_arrays) == self.batch_size
-            assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lc_arrays])
-            lc = np.stack(lc_arrays, axis = 0) #(B, C, H, W)
+            assert len(label_arrays) == self.batch_size
+            assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in label_arrays])
+            lc = np.stack(label_arrays, axis = 0) #(B, C, H, W)
             int_labels = lc.astype(int)
 
             # optionally reduce the number of classes
-            if self.lc_trans:
-              merged_labels = array_tools.merge_classes(cond_array = int_labels, trans = self.lc_trans, out_array = int_labels)
+            if dic['trans'] is not None:
+              merged_labels = array_tools.merge_classes(cond_array = int_labels, trans = dic['trans'], out_array = int_labels)
             else:
               merged_labels = int_labels
 
-            if self.lufiles:
-                lu_files = [self.lufiles[k] for k in indexes]
-                # lu_arrays = [np.load(file) for file in lu_files]
-                lu_arrays = self._load_numpy_data(lu_files)
-                try:
-                    assert len(lu_arrays) == self.batch_size
-                    assert all([x.shape == (1, self.unet_dim[0], self.unet_dim[1]) for x in lu_arrays])
-                    lu = np.stack(lu_arrays, axis = 0) #(B, C, H, W)
-                    y = array_tools.merge_classes(cond_array = lu, trans = self.lu_trans, out_array = merged_labels)
-                except AssertionError:
-                    return None
-            else:
-                y = merged_labels
-
             # If necessary, trim data to (-1, dims[0], dims[1])
-            in_shape = y.shape
+            in_shape = merged_labels.shape
             trim = ((in_shape[2] - self.unet_dim[0])//2, (in_shape[3] - self.unet_dim[1])//2)
-            array = y[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
+            array = merged_labels[:,:,trim[0]:self.unet_dim[0]+trim[0], trim[1]:self.unet_dim[1]+trim[1]]
 
             # shift range of categorical labels from [1, n_classes] to [0, n_classes]
             zeroed = array
             # create one-hot representation of classes
-            one_hot = tf.one_hot(zeroed, self.n_classes)
-            # one_hot = to_one_hot(zeroed, self.n_classes)
-            return tf.squeeze(one_hot)
+            if dic['one_hot'] is True:
+                one_hot = tf.one_hot(zeroed, self.n_classes)
+                # one_hot = to_one_hot(zeroed, self.n_classes)
+                return tf.squeeze(one_hot)
+            else:
+                return(zeroed)
 
         except AssertionError:
             return None
-
+                
     def __getitem__(self, index):
         """Generate one batch of data
 
@@ -705,36 +905,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
         # Generate indexes of the batch
         indexes = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
 
-        datasets = []
-
-        if self.s2files:
-            s2Data = self._get_s2_data(indexes)
-            datasets.append(s2Data)
-
-        if self.naipfiles:
-            naipData = self._get_naip_data(indexes)
-            #print("appending Naip data",type(naipData))
-            datasets.append(naipData)
-
-        if self.hagfiles:
-            hagData = self._get_hag_data(indexes)
-            datasets.append(hagData)
-
-        if self.demfiles:
-            demData = self._get_dem_data(indexes)
-            # print('dem', demData.shape)
-            #print("appening DEM data",type(demData))
-            datasets.append(demData)
-
-        if self.ssurgofiles:
-            ssurgoData = self._get_ssurgo_data(indexes)
-            # print('ssurgo', ssurgoData.shape
-            #print("appending ssurgoData",type(ssurgoData))
-            datasets.append(ssurgoData)
-
-        if self.lidarfiles:
-            lidarData = self._get_lidar_data(indexes)
-            datasets.append(lidarData)
+        datasets = [self._get_unet_data(var, indexes) for var in self.var_dict.keys()]
 
         if any([type(dat) != np.ndarray for dat in datasets]):
           pass
@@ -742,7 +913,7 @@ class UNETDataGenerator(tf.keras.utils.Sequence):
             xData = np.concatenate(datasets, axis = -1)
 
         if self.to_fit:
-            labels = self._process_y(indexes)
+            labels = self._process_y(self.response_var, indexes)
             # perform morphological augmentation - expects a 3D (H, W, C) image array
             stacked = np.concatenate([xData, labels], axis = -1)
             morphed = array_tools.aug_array_morph(stacked)
