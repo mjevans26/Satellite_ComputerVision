@@ -360,7 +360,7 @@ def get_s2_stac(dates, aoi, cloud_thresh = 10, bands = ["B02", "B03", "B04", "B0
     s2items = [item.to_dict() for item in list(search.get_items())]
     if len(s2items) > 0:
         s2 = s2items[0]
-        if epsg:
+        if epsg is not None:
             s2epsg = epsg
         else:
             s2epsg = s2['properties']['proj:epsg']
