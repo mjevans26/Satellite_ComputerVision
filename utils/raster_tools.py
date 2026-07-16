@@ -95,7 +95,7 @@ def convert(size, box):
     h = h0*dh
     return (x,y,w,h)
 
-def make_window(cx: int, cy:int, window_size: int) -> tuple:
+def make_window(cx: int, cy:int, window_size: tuple[int, int]) -> tuple:
     """Create an array window around a centroid
     
     Parameters
@@ -104,17 +104,17 @@ def make_window(cx: int, cy:int, window_size: int) -> tuple:
         centroid x-coord
     cy: int
         centroid y-coord
-    window_size: int
-        size of window in pixels
+    window_size: tuple[int, int]
+        x, y size of window in pixels
     
     Return
     ---
     tpl: coordinates of top left (x0, y0) and bottom right (x1, y1) window points
     """
-    x0 = round(cx - window_size//2)
-    y0 = round(cy - window_size//2)
-    x1 = round(cx + window_size//2)
-    y1 = round(cy + window_size//2)
+    x0 = round(cx - window_size[0]//2)
+    y0 = round(cy - window_size[1]//2)
+    x1 = round(cx + window_size[0]//2)
+    y1 = round(cy + window_size[1]//2)
     return (x0, y0, x1, y1)
 
 def get_geo_transform(raster_src):
