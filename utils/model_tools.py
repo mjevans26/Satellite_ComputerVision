@@ -318,7 +318,7 @@ def decoder_block(input_tensor, concat_tensor, num_filters, up_size = (2,2), dro
     return decoder
 
 ## MODEL CONSTRUCTION
-def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2], dropout = None):
+def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2], aspp = False, dropout = None, prefix = ''):
     """Create U-Net layers
 
     Params
@@ -345,20 +345,25 @@ def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors =
         encoder_name = f'encoder{i}'
         encoder_pool_name = f'encoder_pool{i}'
         if i == 0:
-            encoder = encoder_block(filt, pool_size = (factor, factor), name = f'encoder_{i}')
+            encoder = encoder_block(filt, pool_size = (factor, factor), name = f'{prefix}encoder_{i}')
             encoder_pool, encoded = encoder(input_tensor)
             if dropout is not None:
                 encoder_pool = layers.SpatialDropout2D(dropout)(encoder_pool)
             else:
                 encoder_pool = encoder_pool
         else:
-            encoder = encoder_block(filt, pool_size = (factor, factor), name = f'encoder_{i}')
+            encoder = encoder_block(filt, pool_size = (factor, factor), name = f'{prefix}encoder_{i}')
             encoder_pool, encoded = encoder(encoder_pool)
         net[encoder_name] = encoded
         net[encoder_pool_name] = encoder_pool
 
     conv = conv_block(filters[-1]*2)
-    center = conv(net[f'encoder_pool{levels-1}'])
+    if aspp:
+        aspp = DilatedSpatialPyramidPooling(filters[-1]*2)
+        center = aspp(net[f'encoder_pool{levels-1}'])
+    else:
+        center = conv(net[f'encoder_pool{levels-1}'])
+
     if dropout is not None:
         decoder_input = layers.Dropout(dropout)(center)
     else:
@@ -391,12 +396,12 @@ def build_unet_layers(input_tensor, filters = [32, 64, 128, 256, 512], factors =
     # decoder0 = decoder_block(decoder1, encoder0, 32) # 256
     # return decoder0
 
-def get_unet_model(nclasses, nchannels, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2], bias = None, dropout = None, head_name:str = ''):
+def get_unet_model(nclasses, nchannels, filters = [32, 64, 128, 256, 512], factors = [2,2,2,2,2], bias = None, dropout = None, aspp = False, head_name:str = '', prefix = ''):
     if bias is not None:
         bias = tf.keras.initializers.Constant(bias)
     inputs = layers.Input(shape = [None, None, nchannels])
     print("INPUTS:",inputs)
-    decoder = build_unet_layers(inputs, filters, factors, dropout = dropout)
+    decoder = build_unet_layers(inputs, filters, factors, dropout = dropout, aspp = aspp, prefix = prefix)
     print("DECODER:",decoder)
     if dropout is not None:
         logit_input = layers.SpatialDropout2D(dropout)(decoder)
